@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.github.nlnwa</groupId>
+    <artifactId>veidemann-frontier</artifactId>
+    <version>0</version>
+    <packaging>jar</packaging>
+
+    <organization>
+        <name>National Library of Norway</name>
+        <url>http://nb.no</url>
+    </organization>
+
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <docker.tag>latest</docker.tag>
+
+        <docker.java.image>openjdk:8-jdk-alpine</docker.java.image>
+
+        <veidemann.commons.version>0.3.5</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.3.4</veidemann.rethinkdbadapter.version>
+        <veidemann.harvester.version>0.3.3</veidemann.harvester.version>
+
+        <log4j.version>2.7</log4j.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+        <repository>
+            <id>oss.sonatype.org</id>
+            <name>OSS Sonatype</name>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.github.nlnwa</groupId>
+            <artifactId>veidemann-rethinkdbadapter</artifactId>
+            <version>${veidemann.rethinkdbadapter.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.nlnwa</groupId>
+            <artifactId>veidemann-commons</artifactId>
+            <version>${veidemann.commons.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.netpreserve.commons</groupId>
+            <artifactId>webarchive-commons-uri</artifactId>
+            <version>2.0.0-SNAPSHOT</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.8.5</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>21.0</version>
+        </dependency>
+
+        <!-- Configuration framework -->
+        <dependency>
+            <groupId>com.typesafe</groupId>
+            <artifactId>config</artifactId>
+            <version>1.3.1</version>
+        </dependency>
+
+        <!-- Do all logging thru Log4j -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.21</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-jul</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+
+        <!-- Test dependencies -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.8.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.nlnwa.veidemann-harvester</groupId>
+            <artifactId>veidemann-harvester</artifactId>
+            <version>${veidemann.harvester.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>2.13.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Make version number available for application -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.0.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>docker-build</id>
+            <build>
+                <plugins>
+                    <!-- Create assembly with startup scripts and dependencies -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>appassembler-maven-plugin</artifactId>
+                        <version>2.0.0</version>
+                        <configuration>
+                            <licenseHeaderFile>${basedir}/src/main/etc/license-header.txt</licenseHeaderFile>
+                            <programs>
+                                <program>
+                                    <mainClass>no.nb.nna.veidemann.frontier.Main</mainClass>
+                                    <id>${project.artifactId}</id>
+                                </program>
+                            </programs>
+                            <binFolder>bin</binFolder>
+                            <repositoryName>lib</repositoryName>
+                            <repositoryLayout>flat</repositoryLayout>
+                            <configurationDirectory>config</configurationDirectory>
+                            <endorsedDir>plugins</endorsedDir>
+                            <preAssembleDirectory>src/main/distfiles</preAssembleDirectory>
+                            <extraJvmArguments>-Dconfig.file=@BASEDIR@/config/application.conf -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap</extraJvmArguments>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>assemble</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Build Docker image -->
+                    <plugin>
+                        <groupId>io.fabric8</groupId>
+                        <artifactId>docker-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>docker-build</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>build</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <images>
+                                <image>
+                                    <name>norsknettarkiv/${project.artifactId}</name>
+                                    <alias>frontier</alias>
+                                    <build>
+                                        <from>${docker.java.image}</from>
+                                        <maintainer>National Library of Norway</maintainer>
+                                        <tags>
+                                            <tag>${docker.tag}</tag>
+                                        </tags>
+                                        <optimise>true</optimise>
+                                        <runCmds>
+                                            <run>mkdir /workdir</run>
+                                        </runCmds>
+                                        <volumes>
+                                            <volume>/workdir</volume>
+                                        </volumes>
+                                        <env>
+                                            <WORK_DIR>/workdir</WORK_DIR>
+                                        </env>
+                                        <ports>
+                                            <port>8080</port>
+                                            <port>5005</port>
+                                        </ports>
+                                        <cmd>
+                                            <exec>
+                                                <arg>/veidemann/bin/${project.artifactId}</arg>
+                                            </exec>
+                                        </cmd>
+                                        <assembly>
+                                            <targetDir>/veidemann</targetDir>
+
+                                            <inline>
+                                                <includeBaseDirectory>true</includeBaseDirectory>
+                                                <fileSets>
+                                                    <fileSet>
+                                                        <directory>target/appassembler/bin</directory>
+                                                        <outputDirectory>bin</outputDirectory>
+                                                        <includes>
+                                                            <include>${project.artifactId}</include>
+                                                        </includes>
+                                                        <fileMode>0755</fileMode>
+                                                    </fileSet>
+                                                    <fileSet>
+                                                        <directory>target/appassembler/bin</directory>
+                                                        <outputDirectory>bin</outputDirectory>
+                                                        <excludes>
+                                                            <exclude>${project.artifactId}</exclude>
+                                                        </excludes>
+                                                        <fileMode>0644</fileMode>
+                                                    </fileSet>
+                                                    <fileSet>
+                                                        <directory>target/appassembler</directory>
+                                                        <outputDirectory>/</outputDirectory>
+                                                        <excludes>
+                                                            <exclude>bin</exclude>
+                                                        </excludes>
+                                                    </fileSet>
+                                                </fileSets>
+                                                <files>
+                                                    <file>
+                                                        <source>LICENSE</source>
+                                                        <outputDirectory></outputDirectory>
+                                                        <fileMode>0644</fileMode>
+                                                    </file>
+                                                </files>
+                                            </inline>
+                                        </assembly>
+                                    </build>
+                                </image>
+                            </images>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
