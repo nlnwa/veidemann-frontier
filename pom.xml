@@ -27,7 +27,7 @@
 
         <docker.java.image>openjdk:8-jdk-alpine</docker.java.image>
 
-        <veidemann.commons.version>0.3.5</veidemann.commons.version>
+        <veidemann.commons.version>0.3.6</veidemann.commons.version>
         <veidemann.rethinkdbadapter.version>0.3.4</veidemann.rethinkdbadapter.version>
         <veidemann.harvester.version>0.3.3</veidemann.harvester.version>
 
