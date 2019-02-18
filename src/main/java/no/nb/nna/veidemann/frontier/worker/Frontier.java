@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
+import java.util.concurrent.Semaphore;
 
 /**
  *
@@ -40,6 +41,10 @@ public class Frontier implements AutoCloseable {
     private final DnsServiceClient dnsServiceClient;
 
     private final QueueWorker queueWorker;
+
+    private static final int MAX_SIMULTANEOUS_PAGE_FETCH_REQUESTS = 32;
+
+    private final Semaphore available = new Semaphore(MAX_SIMULTANEOUS_PAGE_FETCH_REQUESTS, true);
 
     public Frontier(RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient) {
         this.robotsServiceClient = robotsServiceClient;
@@ -86,7 +91,10 @@ public class Frontier implements AutoCloseable {
     }
 
     public CrawlExecution getNextPageToFetch() throws InterruptedException {
-        return queueWorker.getNextToFetch();
+        available.acquire();
+        CrawlExecution next = queueWorker.getNextToFetch();
+        available.release();
+        return next;
     }
 
     public RobotsServiceClient getRobotsServiceClient() {
