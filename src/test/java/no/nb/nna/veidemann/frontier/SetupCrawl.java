@@ -20,6 +20,7 @@ import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest.Builder;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.commons.db.ConfigAdapter;
@@ -30,6 +31,8 @@ import no.nb.nna.veidemann.commons.util.ApiTools;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ForkJoinPool;
 
 public class SetupCrawl {
     ConfigAdapter c = DbService.getInstance().getConfigAdapter();
@@ -107,11 +110,14 @@ public class SetupCrawl {
         System.out.print("Submitting seeds to job ");
         JobExecutionStatus jes = e.createJobExecutionStatus(crawlJob.getId());
         for (ConfigObject seed : seeds) {
-            CrawlSeedRequest.Builder requestBuilder = CrawlSeedRequest.newBuilder()
-                    .setJob(crawlJob)
-                    .setSeed(seed)
-                    .setJobExecutionId(jes.getId());
-            frontierStub.crawlSeed(requestBuilder.build());
+            ForkJoinPool.commonPool().submit((Callable<Void>) () -> {
+                Builder requestBuilder = CrawlSeedRequest.newBuilder()
+                        .setJob(crawlJob)
+                        .setSeed(seed)
+                        .setJobExecutionId(jes.getId());
+                frontierStub.crawlSeed(requestBuilder.build());
+                return null;
+            });
             System.out.print(".");
         }
         System.out.println(" DONE");

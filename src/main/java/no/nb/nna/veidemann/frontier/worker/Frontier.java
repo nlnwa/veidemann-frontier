@@ -23,11 +23,13 @@ import no.nb.nna.veidemann.commons.client.DnsServiceClient;
 import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
+import no.nb.nna.veidemann.db.RethinkDbCrawlQueueAdapter;
+import no.nb.nna.veidemann.db.RethinkDbCrawlQueueFetcher;
+import no.nb.nna.veidemann.db.RethinkDbCrawlQueueFetcher.CrawlableUri;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
-import java.util.concurrent.Semaphore;
 
 /**
  *
@@ -40,16 +42,12 @@ public class Frontier implements AutoCloseable {
 
     private final DnsServiceClient dnsServiceClient;
 
-    private final QueueWorker queueWorker;
-
-    private static final int MAX_SIMULTANEOUS_PAGE_FETCH_REQUESTS = 32;
-
-    private final Semaphore available = new Semaphore(MAX_SIMULTANEOUS_PAGE_FETCH_REQUESTS, true);
+    private final RethinkDbCrawlQueueFetcher crawlQueueFetcher;
 
     public Frontier(RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient) {
         this.robotsServiceClient = robotsServiceClient;
         this.dnsServiceClient = dnsServiceClient;
-        this.queueWorker = new QueueWorker(this);
+        this.crawlQueueFetcher = ((RethinkDbCrawlQueueAdapter) DbService.getInstance().getCrawlQueueAdapter()).getCrawlQueueFetcher();
     }
 
     public CrawlExecutionStatus scheduleSeed(CrawlSeedRequest request) throws DbException {
@@ -90,11 +88,12 @@ public class Frontier implements AutoCloseable {
         return status.getCrawlExecutionStatus();
     }
 
-    public CrawlExecution getNextPageToFetch() throws InterruptedException {
-        available.acquire();
-        CrawlExecution next = queueWorker.getNextToFetch();
-        available.release();
-        return next;
+    public CrawlExecution getNextPageToFetch() throws InterruptedException, DbException {
+        CrawlableUri cUri = crawlQueueFetcher.getNextToFetch();
+        if (cUri != null) {
+            return new CrawlExecution(cUri.getUri(), cUri.getCrawlHostGroup(), this);
+        }
+        return null;
     }
 
     public RobotsServiceClient getRobotsServiceClient() {

@@ -37,6 +37,7 @@ import java.util.concurrent.Executors;
 
 public class HarvesterMock {
     private static final int NUM_HARVESTERS = 100;
+    private static final int SIMULATED_PAGE_FETCH_TIME_MS = 1000;
     private static final Logger LOG = LoggerFactory.getLogger(HarvesterMock.class);
     private final static PageHarvest NEW_PAGE_REQUEST = PageHarvest.newBuilder().setRequestNextPage(true).build();
     private final FrontierGrpc.FrontierStub frontierAsyncStub;
@@ -49,13 +50,10 @@ public class HarvesterMock {
 
     public void start() {
         for (int i = 0; i < NUM_HARVESTERS; i++) {
-            exe.submit(new Callable<Void>() {
-                @Override
-                public Void call() throws Exception {
-                    Harvester h = new Harvester();
-                    while (true) {
-                        h.harvest();
-                    }
+            exe.submit((Callable<Void>) () -> {
+                Harvester h = new Harvester();
+                while (true) {
+                    h.harvest();
                 }
             });
         }
@@ -96,11 +94,10 @@ public class HarvesterMock {
             public void onNext(PageHarvestSpec pageHarvestSpec) {
                 QueuedUri fetchUri = pageHarvestSpec.getQueuedUri();
                 try {
-                    Thread.sleep(1000);
+                    Thread.sleep(SIMULATED_PAGE_FETCH_TIME_MS);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
-//            System.out.println("Harvest: " + fetchUri.getUri());
 
                 List<QueuedUri> outlinks = new ArrayList<>();
                 for (int i = 0; i < 10; i++) {
