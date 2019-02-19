@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
 
 public class DnsResolverMock {
     private static final Logger LOG = LoggerFactory.getLogger(DnsResolverMock.class);
-    Pattern seedNumPattern = Pattern.compile("stress-(\\d)(\\d)(\\d).com");
+    Pattern seedNumPattern = Pattern.compile("stress-(\\d\\d)(\\d\\d)(\\d\\d).com");
 
     final Server server;
     public DnsResolverMock(int port) {

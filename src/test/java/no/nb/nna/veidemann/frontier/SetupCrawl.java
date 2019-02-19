@@ -95,7 +95,7 @@ public class SetupCrawl {
             ConfigObject.Builder seedBuilder = ConfigObject.newBuilder()
                     .setApiVersion("v1")
                     .setKind(Kind.seed);
-            seedBuilder.getMetaBuilder().setName(String.format("http://stress-%03d.com", i));
+            seedBuilder.getMetaBuilder().setName(String.format("http://stress-%06d.com", i));
             seedBuilder.getSeedBuilder()
                     .setEntityRef(ApiTools.refForConfig(entity))
                     .addJobRef(jobRef);
