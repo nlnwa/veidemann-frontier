@@ -36,7 +36,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class HarvesterMock {
-    private static final int NUM_HARVESTERS = 100;
+    private static final int NUM_HARVESTERS = 200;
     private static final int SIMULATED_PAGE_FETCH_TIME_MS = 1000;
     private static final Logger LOG = LoggerFactory.getLogger(HarvesterMock.class);
     private final static PageHarvest NEW_PAGE_REQUEST = PageHarvest.newBuilder().setRequestNextPage(true).build();
@@ -139,8 +139,6 @@ public class HarvesterMock {
                     reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError(t.toString()));
                     requestObserver.onNext(reply.build());
                     requestObserver.onCompleted();
-                } finally {
-                    lock.countDown();
                 }
             }
 
@@ -152,10 +150,12 @@ public class HarvesterMock {
                 } else {
                     LOG.warn("Get next page failed: {}", status);
                 }
+                lock.countDown();
             }
 
             @Override
             public void onCompleted() {
+                lock.countDown();
             }
         }
     }

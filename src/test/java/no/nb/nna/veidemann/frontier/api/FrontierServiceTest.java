@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -82,6 +83,7 @@ public class FrontierServiceTest {
         inProcessServer.blockUntilShutdown();
 
         verify(frontierMock, times(3)).getNextPageToFetch();
+        verify(frontierMock, times(3)).setPrefetchSize(anyInt());
         verify(controller, times(3)).render(any(), any(QueuedUri.class), any(ConfigObject.class));
         verify(crawlExecutionMock, times(3)).preFetch();
         verify(crawlExecutionMock, times(3)).postFetchFinally();

@@ -33,6 +33,8 @@ import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 /**
  *
  */
@@ -45,6 +47,8 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
     public FrontierService(Frontier frontier) {
         this.frontier = frontier;
     }
+
+    AtomicInteger activeRequests = new AtomicInteger();
 
     @Override
     public void crawlSeed(CrawlSeedRequest request, StreamObserver<CrawlExecutionId> responseObserver) {
@@ -68,6 +72,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public StreamObserver<PageHarvest> getNextPage(StreamObserver<PageHarvestSpec> responseObserver) {
+        frontier.setPrefetchSize((int) (activeRequests.incrementAndGet() * 1.2));
         return new StreamObserver<PageHarvest>() {
             CrawlExecution exe;
 
@@ -86,40 +91,28 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
                             }
                             responseObserver.onNext(pageHarvestSpec);
                         } catch (Exception e) {
-                            LOG.warn(e.toString(), e);
-                            Status status = Status.UNKNOWN.withDescription(e.toString());
-                            responseObserver.onError(status.asException());
-                            exe.postFetchFinally();
+                            handleException(e);
                         }
                         break;
                     case METRICS:
                         try {
                             exe.postFetchSuccess(value.getMetrics());
                         } catch (Exception e) {
-                            LOG.warn(e.toString(), e);
-                            Status status = Status.UNKNOWN.withDescription(e.toString());
-                            responseObserver.onError(status.asException());
-                            exe.postFetchFinally();
+                            handleException(e);
                         }
                         break;
                     case OUTLINK:
                         try {
                             exe.queueOutlink(value.getOutlink());
                         } catch (Exception e) {
-                            LOG.warn(e.toString(), e);
-                            Status status = Status.UNKNOWN.withDescription(e.toString());
-                            responseObserver.onError(status.asException());
-                            exe.postFetchFinally();
+                            handleException(e);
                         }
                         break;
                     case ERROR:
                         try {
                             exe.postFetchFailure(value.getError());
                         } catch (Exception e) {
-                            LOG.warn(e.toString(), e);
-                            Status status = Status.UNKNOWN.withDescription(e.toString());
-                            responseObserver.onError(status.asException());
-                            exe.postFetchFinally();
+                            handleException(e);
                         }
                         break;
                 }
@@ -138,7 +131,16 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
             @Override
             public void onCompleted() {
                 exe.postFetchFinally();
+                activeRequests.decrementAndGet();
                 responseObserver.onCompleted();
+            }
+
+            private void handleException(Exception e) {
+                LOG.warn(e.toString(), e);
+                Status status = Status.UNKNOWN.withDescription(e.toString());
+                activeRequests.decrementAndGet();
+                responseObserver.onError(status.asException());
+                exe.postFetchFinally();
             }
         };
     }

@@ -96,6 +96,10 @@ public class Frontier implements AutoCloseable {
         return null;
     }
 
+    public void setPrefetchSize(int size) {
+        crawlQueueFetcher.setPrefetchSize(size);
+    }
+
     public RobotsServiceClient getRobotsServiceClient() {
         return robotsServiceClient;
     }

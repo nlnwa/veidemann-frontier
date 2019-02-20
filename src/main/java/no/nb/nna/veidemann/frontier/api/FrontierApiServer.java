@@ -15,9 +15,6 @@
  */
 package no.nb.nna.veidemann.frontier.api;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.opentracing.contrib.ServerTracingInterceptor;
@@ -25,6 +22,9 @@ import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
 
 /**
  *
