@@ -20,12 +20,12 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.client.DnsServiceClient;
+import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
+import no.nb.nna.veidemann.commons.db.CrawlQueueFetcher;
+import no.nb.nna.veidemann.commons.db.CrawlableUri;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
-import no.nb.nna.veidemann.db.RethinkDbCrawlQueueAdapter;
-import no.nb.nna.veidemann.db.RethinkDbCrawlQueueFetcher;
-import no.nb.nna.veidemann.db.RethinkDbCrawlQueueFetcher.CrawlableUri;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,12 +42,15 @@ public class Frontier implements AutoCloseable {
 
     private final DnsServiceClient dnsServiceClient;
 
-    private final RethinkDbCrawlQueueFetcher crawlQueueFetcher;
+    private final ScopeCheck scopeChecker;
 
-    public Frontier(RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient) {
+    private final CrawlQueueFetcher crawlQueueFetcher;
+
+    public Frontier(RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient) {
         this.robotsServiceClient = robotsServiceClient;
         this.dnsServiceClient = dnsServiceClient;
-        this.crawlQueueFetcher = ((RethinkDbCrawlQueueAdapter) DbService.getInstance().getCrawlQueueAdapter()).getCrawlQueueFetcher();
+        this.scopeChecker = new ScopeCheck(outOfScopeHandlerClient);
+        this.crawlQueueFetcher = DbService.getInstance().getCrawlQueueAdapter().getCrawlQueueFetcher();
     }
 
     public CrawlExecutionStatus scheduleSeed(CrawlSeedRequest request) throws DbException {
@@ -96,8 +99,8 @@ public class Frontier implements AutoCloseable {
         return null;
     }
 
-    public void setPrefetchSize(int size) {
-        crawlQueueFetcher.setPrefetchSize(size);
+    public void setCurrentClientCount(int clientCount) {
+        crawlQueueFetcher.setCurrentClientCount(clientCount);
     }
 
     public RobotsServiceClient getRobotsServiceClient() {
@@ -106,6 +109,10 @@ public class Frontier implements AutoCloseable {
 
     public DnsServiceClient getDnsServiceClient() {
         return dnsServiceClient;
+    }
+
+    public ScopeCheck getScopeChecker() {
+        return scopeChecker;
     }
 
     @Override

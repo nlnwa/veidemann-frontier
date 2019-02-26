@@ -83,7 +83,7 @@ public class FrontierServiceTest {
         inProcessServer.blockUntilShutdown();
 
         verify(frontierMock, times(3)).getNextPageToFetch();
-        verify(frontierMock, times(3)).setPrefetchSize(anyInt());
+        verify(frontierMock, times(3)).setCurrentClientCount(anyInt());
         verify(controller, times(3)).render(any(), any(QueuedUri.class), any(ConfigObject.class));
         verify(crawlExecutionMock, times(3)).preFetch();
         verify(crawlExecutionMock, times(3)).postFetchFinally();

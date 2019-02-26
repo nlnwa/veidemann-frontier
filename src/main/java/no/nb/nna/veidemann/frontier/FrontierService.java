@@ -20,6 +20,7 @@ import com.typesafe.config.ConfigBeanFactory;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
 import no.nb.nna.veidemann.commons.client.DnsServiceClient;
+import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
 import no.nb.nna.veidemann.commons.db.DbAdapter;
 import no.nb.nna.veidemann.commons.db.DbService;
@@ -70,7 +71,10 @@ public class FrontierService {
              DnsServiceClient dnsServiceClient = new DnsServiceClient(
                      SETTINGS.getDnsResolverHost(), SETTINGS.getDnsResolverPort());
 
-             Frontier frontier = new Frontier(robotsServiceClient, dnsServiceClient);
+             OutOfScopeHandlerClient outOfScopeHandlerClient = new OutOfScopeHandlerClient(
+                     SETTINGS.getOutOfScopeHandlerHost(), SETTINGS.getOutOfScopeHandlerPort());
+
+             Frontier frontier = new Frontier(robotsServiceClient, dnsServiceClient, outOfScopeHandlerClient);
              FrontierApiServer apiServer = new FrontierApiServer(SETTINGS.getApiPort(), frontier).start();) {
 
             LOG.info("Veidemann Frontier (v. {}) started",

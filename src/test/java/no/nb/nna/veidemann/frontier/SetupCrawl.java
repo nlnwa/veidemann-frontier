@@ -28,6 +28,7 @@ import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.db.ExecutionsAdapter;
 import no.nb.nna.veidemann.commons.util.ApiTools;
+import no.nb.nna.veidemann.commons.util.CrawlScopes;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -92,13 +93,17 @@ public class SetupCrawl {
             entityBuilder.getMetaBuilder().setName("stress-" + i);
             ConfigObject entity = c.saveConfigObject(entityBuilder.build());
 
+            String url = String.format("http://stress-%06d.com", i);
+            String scope = CrawlScopes.generateDomainScope(url);
             ConfigObject.Builder seedBuilder = ConfigObject.newBuilder()
                     .setApiVersion("v1")
                     .setKind(Kind.seed);
-            seedBuilder.getMetaBuilder().setName(String.format("http://stress-%06d.com", i));
+            seedBuilder.getMetaBuilder().setName(url);
             seedBuilder.getSeedBuilder()
                     .setEntityRef(ApiTools.refForConfig(entity))
-                    .addJobRef(jobRef);
+                    .addJobRef(jobRef)
+                    .getScopeBuilder().setSurtPrefix(scope);
+
             ConfigObject seed = c.saveConfigObject(seedBuilder.build());
             seeds.add(seed);
             System.out.print(".");
