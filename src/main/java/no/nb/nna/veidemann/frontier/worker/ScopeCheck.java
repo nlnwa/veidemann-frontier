@@ -15,6 +15,7 @@
  */
 package no.nb.nna.veidemann.frontier.worker;
 
+import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,13 +26,17 @@ public class ScopeCheck {
 
     private static final Logger LOG = LoggerFactory.getLogger(ScopeCheck.class);
 
-    private ScopeCheck() {
+    private final OutOfScopeHandlerClient outOfScopeHandlerClient;
+
+    public ScopeCheck(OutOfScopeHandlerClient outOfScopeHandlerClient) {
+        this.outOfScopeHandlerClient = outOfScopeHandlerClient;
     }
 
-    static boolean isInScope(StatusWrapper status, QueuedUriWrapper qUri) {
+    public boolean isInScope(StatusWrapper status, QueuedUriWrapper qUri) {
         if (!qUri.getSurt().startsWith(status.getScope().getSurtPrefix())) {
             LOG.debug("URI '{}' is out of scope, skipping.", qUri.getSurt());
             status.incrementDocumentsOutOfScope();
+            outOfScopeHandlerClient.submitUri(qUri.getQueuedUri());
             return false;
         }
         return true;

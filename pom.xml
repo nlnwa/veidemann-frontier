@@ -27,8 +27,8 @@
 
         <docker.java.image>openjdk:8-jdk-alpine</docker.java.image>
 
-        <veidemann.commons.version>0.3.6</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.3.10</veidemann.rethinkdbadapter.version>
+        <veidemann.commons.version>0.3.7</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.3.12</veidemann.rethinkdbadapter.version>
         <veidemann.harvester.version>0.3.3</veidemann.harvester.version>
 
         <log4j.version>2.7</log4j.version>
@@ -318,6 +318,7 @@
                                     <portNames>
                                         <portName>dnsresolver.port</portName>
                                         <portName>robotsevaluator.port</portName>
+                                        <portName>ooshandler.port</portName>
                                     </portNames>
                                 </configuration>
                             </execution>
@@ -409,6 +410,8 @@
                                                     <ROBOTS_EVALUATOR_PORT>${robotsevaluator.port}</ROBOTS_EVALUATOR_PORT>
                                                     <DNS_RESOLVER_HOST>${local.ip}</DNS_RESOLVER_HOST>
                                                     <DNS_RESOLVER_PORT>${dnsresolver.port}</DNS_RESOLVER_PORT>
+                                                    <OOS_HANDLER_HOST>${local.ip}</OOS_HANDLER_HOST>
+                                                    <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
                                                 </env>
                                                 <log>
                                                     <enabled>true</enabled>
@@ -454,6 +457,7 @@
                                 <local.ip>${local.ip}</local.ip>
                                 <dnsresolver.port>${dnsresolver.port}</dnsresolver.port>
                                 <robotsevaluator.port>${robotsevaluator.port}</robotsevaluator.port>
+                                <ooshandler.port>${ooshandler.port}</ooshandler.port>
                             </systemPropertyVariables>
                         </configuration>
                     </plugin>

@@ -100,7 +100,8 @@ public class HarvesterMock {
                 }
 
                 List<QueuedUri> outlinks = new ArrayList<>();
-                for (int i = 0; i < 10; i++) {
+                // In Scope links
+                for (int i = 0; i < 5; i++) {
                     QueuedUri.Builder qUri = QueuedUri.newBuilder()
                             .setUri(fetchUri.getUri() + "/p" + i)
                             .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
@@ -110,6 +111,18 @@ public class HarvesterMock {
                             .setIp(fetchUri.getIp());
                     outlinks.add(qUri.build());
                 }
+                // Out of Scope scope links
+                for (int i = 0; i < 3; i++) {
+                    QueuedUri.Builder qUri = QueuedUri.newBuilder()
+                            .setUri("http://www.example.com/p" + i)
+                            .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
+                            .setJobExecutionId(fetchUri.getJobExecutionId())
+                            .setExecutionId(fetchUri.getExecutionId())
+                            .setCrawlHostGroupId(fetchUri.getCrawlHostGroupId())
+                            .setIp(fetchUri.getIp());
+                    outlinks.add(qUri.build());
+                }
+
                 try {
                     RenderResult result = new RenderResult()
                             .withBytesDownloaded(10l)

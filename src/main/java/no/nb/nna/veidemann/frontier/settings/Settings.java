@@ -34,6 +34,10 @@ public class Settings extends CommonSettings {
 
     private int dnsResolverPort;
 
+    private String outOfScopeHandlerHost;
+
+    private int outOfScopeHandlerPort;
+
     public int getApiPort() {
         return apiPort;
     }
@@ -80,5 +84,21 @@ public class Settings extends CommonSettings {
 
     public void setDnsResolverPort(int dnsResolverPort) {
         this.dnsResolverPort = dnsResolverPort;
+    }
+
+    public String getOutOfScopeHandlerHost() {
+        return outOfScopeHandlerHost;
+    }
+
+    public void setOutOfScopeHandlerHost(String outOfScopeHandlerHost) {
+        this.outOfScopeHandlerHost = outOfScopeHandlerHost;
+    }
+
+    public int getOutOfScopeHandlerPort() {
+        return outOfScopeHandlerPort;
+    }
+
+    public void setOutOfScopeHandlerPort(int outOfScopeHandlerPort) {
+        this.outOfScopeHandlerPort = outOfScopeHandlerPort;
     }
 }

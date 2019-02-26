@@ -325,7 +325,7 @@ public class CrawlExecution {
             return false;
         }
 
-        if (!ScopeCheck.isInScope(status, outlink)) {
+        if (!frontier.getScopeChecker().isInScope(status, outlink)) {
             return false;
         }
 

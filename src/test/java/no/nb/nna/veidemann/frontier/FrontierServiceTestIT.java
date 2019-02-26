@@ -42,6 +42,8 @@ public class FrontierServiceTestIT {
 
     static int robotsevaluatorPort;
 
+    static int ooshandlerPort;
+
     static String frontierHost;
 
     static int frontierPort;
@@ -59,12 +61,14 @@ public class FrontierServiceTestIT {
         localIp = System.getProperty("local.ip");
         dnsresolverPort = Integer.parseInt(System.getProperty("dnsresolver.port"));
         robotsevaluatorPort = Integer.parseInt(System.getProperty("robotsevaluator.port"));
+        ooshandlerPort = Integer.parseInt(System.getProperty("ooshandler.port"));
         frontierHost = System.getProperty("frontier.host");
         frontierPort = Integer.parseInt(System.getProperty("frontier.port"));
 
         System.out.println("      DB: " + dbHost + ":" + dbPort);
         System.out.println("     DNS: " + localIp + ":" + dnsresolverPort);
         System.out.println("  ROBOTS: " + localIp + ":" + robotsevaluatorPort);
+        System.out.println("     OOS: " + localIp + ":" + ooshandlerPort);
         System.out.println("FRONTIER: " + frontierHost + ":" + frontierPort);
 
         if (!DbService.isConfigured()) {
@@ -91,6 +95,8 @@ public class FrontierServiceTestIT {
         dnsResolverMock.start();
         RobotsEvaluatorMock robotsEvaluatorMock = new RobotsEvaluatorMock(robotsevaluatorPort);
         robotsEvaluatorMock.start();
+        OutOfScopeHandlerMock outOfScopeHandlerMock = new OutOfScopeHandlerMock(ooshandlerPort);
+        outOfScopeHandlerMock.start();
         HarvesterMock harvesterMock = new HarvesterMock(frontierAsyncStub);
         harvesterMock.start();
 

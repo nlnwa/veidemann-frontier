@@ -72,7 +72,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public StreamObserver<PageHarvest> getNextPage(StreamObserver<PageHarvestSpec> responseObserver) {
-        frontier.setPrefetchSize((int) (activeRequests.incrementAndGet() * 1.2));
+        frontier.setCurrentClientCount(activeRequests.incrementAndGet());
         return new StreamObserver<PageHarvest>() {
             CrawlExecution exe;
 

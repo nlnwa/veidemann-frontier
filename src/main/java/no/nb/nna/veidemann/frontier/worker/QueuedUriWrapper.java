@@ -63,7 +63,7 @@ public class QueuedUriWrapper {
             wrapped = ((QueuedUri) uri).toBuilder();
         }
         if (wrapped.getSurt().isEmpty()) {
-            createSurt(collectionName);
+            createSurt();
         }
     }
 
@@ -135,7 +135,7 @@ public class QueuedUriWrapper {
         return this;
     }
 
-    private void createSurt(String collectionName) throws URISyntaxException, DbException {
+    private void createSurt() throws URISyntaxException, DbException {
         LOG.debug("Parse URI '{}'", wrapped.getUri());
         try {
             surt = UriConfigs.SURT_KEY.buildUri(wrapped.getUri());
