@@ -28,8 +28,8 @@
         <docker.java.image>openjdk:8-jdk-alpine</docker.java.image>
 
         <veidemann.commons.version>0.3.8</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.3.13</veidemann.rethinkdbadapter.version>
-        <veidemann.harvester.version>0.3.6</veidemann.harvester.version>
+        <veidemann.rethinkdbadapter.version>0.3.14</veidemann.rethinkdbadapter.version>
+        <veidemann.harvester.version>0.3.7</veidemann.harvester.version>
 
         <log4j.version>2.7</log4j.version>
 
