@@ -30,11 +30,8 @@ import no.nb.nna.veidemann.api.frontier.v1.PageHarvest.Metrics;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
-import no.nb.nna.veidemann.commons.db.ConfigAdapter;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
-import no.nb.nna.veidemann.commons.db.DistributedLock;
-import no.nb.nna.veidemann.commons.db.DistributedLock.Key;
 import no.nb.nna.veidemann.frontier.worker.Preconditions.PreconditionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,21 +47,23 @@ public class CrawlExecution {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrawlExecution.class);
 
-    private final StatusWrapper status;
+    final StatusWrapper status;
 
-    private final Frontier frontier;
+    final Frontier frontier;
 
-    private final ConfigObject crawlConfig;
+    final ConfigObject crawlConfig;
 
-    private final ConfigObject politenessConfig;
+    final ConfigObject politenessConfig;
 
-    private final ConfigObject collectionConfig;
+    final ConfigObject collectionConfig;
 
-    private final CrawlLimitsConfig limits;
+    final CrawlLimitsConfig limits;
 
-    private final QueuedUriWrapper qUri;
+    final QueuedUriWrapper qUri;
 
-    private final CrawlHostGroup crawlHostGroup;
+    final CrawlHostGroup crawlHostGroup;
+
+    private final OutlinkHandler outlinkHandler;
 
     private long delayMs = 0L;
 
@@ -78,10 +77,9 @@ public class CrawlExecution {
 
     public CrawlExecution(QueuedUri queuedUri, CrawlHostGroup crawlHostGroup, Frontier frontier) throws DbException {
         this.status = StatusWrapper.getStatusWrapper(queuedUri.getExecutionId());
-        ConfigAdapter configAdapter = DbService.getInstance().getConfigAdapter();
-        ConfigObject job = configAdapter.getConfigObject(status.getJobId());
-        this.crawlConfig = configAdapter.getConfigObject(job.getCrawlJob().getCrawlConfigRef());
-        this.collectionConfig = configAdapter.getConfigObject(crawlConfig.getCrawlConfig().getCollectionRef());
+        ConfigObject job = frontier.getConfig(status.getJobId());
+        this.crawlConfig = frontier.getConfig(job.getCrawlJob().getCrawlConfigRef());
+        this.collectionConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getCollectionRef());
         try {
             this.qUri = QueuedUriWrapper.getQueuedUriWrapper(queuedUri, collectionConfig.getMeta().getName()).clearError();
         } catch (URISyntaxException ex) {
@@ -91,8 +89,9 @@ public class CrawlExecution {
 
         this.crawlHostGroup = crawlHostGroup;
         this.frontier = frontier;
-        this.politenessConfig = configAdapter.getConfigObject(crawlConfig.getCrawlConfig().getPolitenessRef());
+        this.politenessConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
         this.limits = job.getCrawlJob().getLimits();
+        this.outlinkHandler = new OutlinkHandler(this);
     }
 
     public String getId() {
@@ -151,7 +150,7 @@ public class CrawlExecution {
                     }
                 }
 
-                LOG.info("Fetching " + qUri.getUri());
+                LOG.debug("Fetching " + qUri.getUri());
                 fetchStart = System.currentTimeMillis();
 
                 return PageHarvestSpec.newBuilder()
@@ -237,6 +236,8 @@ public class CrawlExecution {
         MDC.put("uri", qUri.getUri());
 
         try {
+            outlinkHandler.finish();
+
             status.removeCurrentUri(qUri).saveStatus();
             long fetchEnd = System.currentTimeMillis();
             fetchTimeMs = fetchEnd - fetchStart;
@@ -284,57 +285,7 @@ public class CrawlExecution {
     }
 
     public void queueOutlink(QueuedUri outlink) throws DbException {
-        try {
-            QueuedUriWrapper outUri = QueuedUriWrapper.getQueuedUriWrapper(qUri, outlink, collectionConfig.getMeta().getName());
-
-            DistributedLock lock = DbService.getInstance()
-                    .createDistributedLock(new Key("quri", outUri.getSurt()), 10);
-            lock.lock();
-            try {
-                if (shouldInclude(outUri)) {
-                    outUri.setSequence(outUri.getDiscoveryPath().length());
-
-                    PreconditionState check = Preconditions.checkPreconditions(frontier, crawlConfig, status, outUri);
-                    switch (check) {
-                        case OK:
-                            LOG.debug("Found new URI: {}, queueing.", outUri.getSurt());
-                            outUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
-                            outUri.addUriToQueue();
-                            break;
-                        case RETRY:
-                            LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getSurt());
-                            outUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
-                            outUri.addUriToQueue();
-                            break;
-                        case FAIL:
-                        case DENIED:
-                            break;
-                    }
-                }
-            } finally {
-                lock.unlock();
-            }
-        } catch (URISyntaxException ex) {
-            status.incrementDocumentsFailed();
-            LOG.info("Illegal URI {}", ex);
-        }
-    }
-
-    boolean shouldInclude(QueuedUriWrapper outlink) throws DbException {
-        if (!LimitsCheck.isQueueable(limits, status, outlink)) {
-            return false;
-        }
-
-        if (!frontier.getScopeChecker().isInScope(status, outlink)) {
-            return false;
-        }
-
-        if (DbService.getInstance().getCrawlQueueAdapter().uriNotIncludedInQueue(outlink.getQueuedUri(), status.getStartTime())) {
-            return true;
-        }
-
-        LOG.debug("Found already included URI: {}, skipping.", outlink.getSurt());
-        return false;
+        outlinkHandler.queueOutlink(outlink);
     }
 
     private void calculateDelay() {
