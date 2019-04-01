@@ -25,11 +25,13 @@ import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.harvester.browsercontroller.RenderResult;
+import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -101,9 +103,21 @@ public class HarvesterMock {
 
                 List<QueuedUri> outlinks = new ArrayList<>();
                 // In Scope links
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < 5; i += 2) {
                     QueuedUri.Builder qUri = QueuedUri.newBuilder()
-                            .setUri(fetchUri.getUri() + "/p" + i)
+                            .setUri(fetchUri.getUri() + "/p" + (i%5))
+                            .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
+                            .setJobExecutionId(fetchUri.getJobExecutionId())
+                            .setExecutionId(fetchUri.getExecutionId())
+                            .setCrawlHostGroupId(fetchUri.getCrawlHostGroupId())
+                            .setIp(fetchUri.getIp());
+                    outlinks.add(qUri.build());
+                }
+                // Mixed scope
+                for (int i = 0; i < 15; i += 2) {
+                    String url = String.format("http://stress-%06d.com", RandomUtils.nextInt(0, 50));
+                    QueuedUri.Builder qUri = QueuedUri.newBuilder()
+                            .setUri(url + "/p" + (i%2))
                             .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
                             .setJobExecutionId(fetchUri.getJobExecutionId())
                             .setExecutionId(fetchUri.getExecutionId())
@@ -112,15 +126,18 @@ public class HarvesterMock {
                     outlinks.add(qUri.build());
                 }
                 // Out of Scope scope links
-                for (int i = 0; i < 3; i++) {
-                    QueuedUri.Builder qUri = QueuedUri.newBuilder()
-                            .setUri("http://www.example.com/p" + i)
-                            .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
-                            .setJobExecutionId(fetchUri.getJobExecutionId())
-                            .setExecutionId(fetchUri.getExecutionId())
-                            .setCrawlHostGroupId(fetchUri.getCrawlHostGroupId())
-                            .setIp(fetchUri.getIp());
-                    outlinks.add(qUri.build());
+                for (int j = 0; j < 5; j++) {
+                    int r = RandomUtils.nextInt(1, 100);
+                    for (int i = 0; i < 5; i++) {
+                        QueuedUri.Builder qUri = QueuedUri.newBuilder()
+                                .setUri("http://www.example" + r + ".com/p" + i)
+                                .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
+                                .setJobExecutionId(fetchUri.getJobExecutionId())
+                                .setExecutionId(fetchUri.getExecutionId())
+                                .setCrawlHostGroupId(fetchUri.getCrawlHostGroupId())
+                                .setIp(fetchUri.getIp());
+                        outlinks.add(qUri.build());
+                    }
                 }
 
                 try {

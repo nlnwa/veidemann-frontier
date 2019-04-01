@@ -23,6 +23,7 @@ import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus.State;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbException;
+import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.settings.CommonSettings;
 import org.junit.BeforeClass;
@@ -55,7 +56,7 @@ public class FrontierServiceTestIT {
     static FrontierGrpc.FrontierStub frontierAsyncStub;
 
     @BeforeClass
-    public static void init() throws DbConnectionException {
+    public static void init() throws DbConnectionException, DbQueryException {
         dbHost = System.getProperty("db.host");
         dbPort = Integer.parseInt(System.getProperty("db.port"));
         localIp = System.getProperty("local.ip");
@@ -111,6 +112,5 @@ public class FrontierServiceTestIT {
             }
         }
         System.out.println("STATE " + jes.getExecutionsStateMap());
-//        System.out.println(jes);
     }
 }

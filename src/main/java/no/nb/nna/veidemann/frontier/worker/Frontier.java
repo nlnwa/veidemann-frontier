@@ -15,7 +15,11 @@
  */
 package no.nb.nna.veidemann.frontier.worker;
 
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
+import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
@@ -25,11 +29,14 @@ import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
 import no.nb.nna.veidemann.commons.db.CrawlQueueFetcher;
 import no.nb.nna.veidemann.commons.db.CrawlableUri;
 import no.nb.nna.veidemann.commons.db.DbException;
+import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  *
@@ -46,11 +53,23 @@ public class Frontier implements AutoCloseable {
 
     private final CrawlQueueFetcher crawlQueueFetcher;
 
+    private final LoadingCache<ConfigRef, ConfigObject> configCache;
+
     public Frontier(RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient) {
         this.robotsServiceClient = robotsServiceClient;
         this.dnsServiceClient = dnsServiceClient;
         this.scopeChecker = new ScopeCheck(outOfScopeHandlerClient);
         this.crawlQueueFetcher = DbService.getInstance().getCrawlQueueAdapter().getCrawlQueueFetcher();
+
+        configCache = CacheBuilder.newBuilder()
+                .expireAfterWrite(5, TimeUnit.MINUTES)
+                .build(
+                        new CacheLoader<ConfigRef, ConfigObject>() {
+                            public ConfigObject load(ConfigRef key) throws DbException {
+                                return DbService.getInstance().getConfigAdapter()
+                                        .getConfigObject(key);
+                            }
+                        });
     }
 
     public CrawlExecutionStatus scheduleSeed(CrawlSeedRequest request) throws DbException {
@@ -67,10 +86,8 @@ public class Frontier implements AutoCloseable {
         String uri = request.getSeed().getMeta().getName();
 
         try {
-            ConfigObject crawlConfig = DbService.getInstance().getConfigAdapter()
-                    .getConfigObject(request.getJob().getCrawlJob().getCrawlConfigRef());
-            ConfigObject collectionConfig = DbService.getInstance().getConfigAdapter()
-                    .getConfigObject(crawlConfig.getCrawlConfig().getCollectionRef());
+            ConfigObject crawlConfig = getConfig(request.getJob().getCrawlJob().getCrawlConfigRef());
+            ConfigObject collectionConfig = getConfig(crawlConfig.getCrawlConfig().getCollectionRef());
             QueuedUriWrapper qUri = QueuedUriWrapper.getQueuedUriWrapper(uri, request.getJobExecutionId(),
                     status.getId(), crawlConfig.getCrawlConfig().getPolitenessRef(), collectionConfig.getMeta().getName());
             qUri.setPriorityWeight(crawlConfig.getCrawlConfig().getPriorityWeight());
@@ -113,6 +130,14 @@ public class Frontier implements AutoCloseable {
 
     public ScopeCheck getScopeChecker() {
         return scopeChecker;
+    }
+
+    public ConfigObject getConfig(ConfigRef ref) throws DbQueryException {
+        try {
+            return configCache.get(ref);
+        } catch (ExecutionException e) {
+            throw new DbQueryException(e);
+        }
     }
 
     @Override

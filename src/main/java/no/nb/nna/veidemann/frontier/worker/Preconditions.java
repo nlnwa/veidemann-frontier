@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.UnknownHostException;
+import java.util.concurrent.ExecutionException;
 
 /**
  *
@@ -46,31 +47,39 @@ public class Preconditions {
     public static PreconditionState checkPreconditions(Frontier frontier, ConfigObject crawlConfig, StatusWrapper status,
                                                        QueuedUriWrapper qUri) throws DbException {
 
-        ConfigAdapter configAdapter = DbService.getInstance().getConfigAdapter();
-
-        ConfigObject politeness = configAdapter.getConfigObject(crawlConfig.getCrawlConfig().getPolitenessRef());
-        ConfigObject browserConfig = configAdapter.getConfigObject(crawlConfig.getCrawlConfig().getBrowserConfigRef());
+        ConfigObject politeness = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
+        ConfigObject browserConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getBrowserConfigRef());
 
         qUri.clearError();
+
+        if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
+            qUri.setResolved(politeness);
+        } else {
+            DbUtil.writeLog(qUri, ExtraStatusCodes.FAILED_DNS.getCode());
+            status.incrementDocumentsFailed();
+            return PreconditionState.FAIL;
+        }
 
         if (!checkRobots(frontier, browserConfig.getBrowserConfig().getUserAgent(), crawlConfig, politeness, qUri)) {
             status.incrementDocumentsDenied(1L);
             return PreconditionState.DENIED;
         }
 
-        if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
-            qUri.setResolved(politeness);
-            return PreconditionState.OK;
-        } else {
-            if (LimitsCheck.isRetryLimitReached(politeness, qUri)) {
-                LOG.info("Failed fetching '{}' due to retry limit", qUri.getUri());
-                status.incrementDocumentsFailed();
-                return PreconditionState.FAIL;
-            } else {
-                status.incrementDocumentsRetried();
-                return PreconditionState.RETRY;
-            }
-        }
+        return PreconditionState.OK;
+
+//        if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
+//            qUri.setResolved(politeness);
+//            return PreconditionState.OK;
+//        } else {
+//            if (LimitsCheck.isRetryLimitReached(politeness, qUri)) {
+//                LOG.info("Failed fetching '{}' due to retry limit", qUri.getUri());
+//                status.incrementDocumentsFailed();
+//                return PreconditionState.FAIL;
+//            } else {
+//                status.incrementDocumentsRetried();
+//                return PreconditionState.RETRY;
+//            }
+//        }
     }
 
     private static boolean checkRobots(Frontier frontier, String userAgent, ConfigObject crawlConfig, ConfigObject politeness,
@@ -109,9 +118,9 @@ public class Preconditions {
                     qUri.getPort(),
                     ex);
 
-            qUri.setError(ExtraStatusCodes.FAILED_DNS.toFetchError(ex.toString()))
-                    .setEarliestFetchDelaySeconds(politeness.getPolitenessConfig().getRetryDelaySeconds())
-                    .incrementRetries();
+            qUri.setError(ExtraStatusCodes.FAILED_DNS.toFetchError(ex.toString()));
+//                    .setEarliestFetchDelaySeconds(politeness.getPolitenessConfig().getRetryDelaySeconds())
+//                    .incrementRetries();
             return false;
         }
     }

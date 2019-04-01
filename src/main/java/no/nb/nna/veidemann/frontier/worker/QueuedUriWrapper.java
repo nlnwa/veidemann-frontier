@@ -15,6 +15,9 @@
  */
 package no.nb.nna.veidemann.frontier.worker;
 
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Durations;
 import com.google.protobuf.util.Timestamps;
@@ -28,6 +31,7 @@ import no.nb.nna.veidemann.api.frontier.v1.QueuedUriOrBuilder;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.ChangeFeed;
 import no.nb.nna.veidemann.commons.db.DbException;
+import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.util.ApiTools;
 import no.nb.nna.veidemann.db.ProtoUtils;
@@ -38,6 +42,9 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -54,6 +61,22 @@ public class QueuedUriWrapper {
     private final String collectionName;
 
     boolean justAdded = false;
+
+    static final LoadingCache<ListRequest, List<ConfigObject>> chgConfigCache;
+
+    static {
+        chgConfigCache = CacheBuilder.newBuilder()
+                .expireAfterWrite(5, TimeUnit.MINUTES)
+                .build(
+                        new CacheLoader<ListRequest, List<ConfigObject>>() {
+                            public List<ConfigObject> load(ListRequest key) throws DbException {
+                                try (ChangeFeed<ConfigObject> cursor = DbService.getInstance().getConfigAdapter().listConfigObjects(key)) {
+                                    return cursor.stream().collect(Collectors.toList());
+                                }
+                            }
+                        });
+
+    }
 
     private QueuedUriWrapper(QueuedUriOrBuilder uri, String collectionName) throws URISyntaxException, DbException {
         this.collectionName = collectionName;
@@ -133,6 +156,10 @@ public class QueuedUriWrapper {
         justAdded = true;
 
         return this;
+    }
+
+    public Uri getParsedSurt() {
+        return surt;
     }
 
     private void createSurt() throws URISyntaxException, DbException {
@@ -318,12 +345,13 @@ public class QueuedUriWrapper {
         } else {
             // Use IP for politeness
             // Calculate CrawlHostGroup
-            try (ChangeFeed<ConfigObject> cursor = DbService.getInstance().getConfigAdapter().listConfigObjects(ListRequest.newBuilder()
-                    .setKind(Kind.crawlHostGroupConfig)
-                    .addAllLabelSelector(politeness.getPolitenessConfig().getCrawlHostGroupSelectorList()).build())) {
-
-                List<ConfigObject> groupConfigs = cursor.stream().collect(Collectors.toList());
+            try {
+                List<ConfigObject> groupConfigs = chgConfigCache.get(ListRequest.newBuilder()
+                        .setKind(Kind.crawlHostGroupConfig)
+                        .addAllLabelSelector(politeness.getPolitenessConfig().getCrawlHostGroupSelectorList()).build());
                 crawlHostGroupId = CrawlHostGroupCalculator.calculateCrawlHostGroup(wrapped.getIp(), groupConfigs);
+            } catch (ExecutionException e) {
+                throw new DbQueryException(e);
             }
         }
 
@@ -358,5 +386,18 @@ public class QueuedUriWrapper {
     @Override
     public String toString() {
         return getUri().toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        QueuedUriWrapper that = (QueuedUriWrapper) o;
+        return getUri().equals(that.getUri());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getUri());
     }
 }
