@@ -121,7 +121,11 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
             @Override
             public void onError(Throwable t) {
                 try {
-                    exe.postFetchFailure(t);
+                    if (exe != null) {
+                        exe.postFetchFailure(t);
+                    } else {
+                        LOG.error("Error before any action", t);
+                    }
                 } catch (DbException e) {
                     LOG.error("Could not handle failure", e);
                 }
