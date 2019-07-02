@@ -91,28 +91,31 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
                             }
                             responseObserver.onNext(pageHarvestSpec);
                         } catch (Exception e) {
-                            handleException(e);
+                            LOG.error("Error preparing new fetch: {}", e.toString(), e);
+                            Status status = Status.UNKNOWN.withDescription(e.toString());
+                            responseObserver.onError(status.asException());
+                            exe.postFetchFinally();
                         }
                         break;
                     case METRICS:
                         try {
                             exe.postFetchSuccess(value.getMetrics());
                         } catch (Exception e) {
-                            handleException(e);
+                            LOG.warn("Failed to execute postFetchSuccess: {}", e.toString(), e);
                         }
                         break;
                     case OUTLINK:
                         try {
                             exe.queueOutlink(value.getOutlink());
                         } catch (Exception e) {
-                            handleException(e);
+                            LOG.warn("Could not queue outlink '{}'", value.getOutlink().getUri(), e);
                         }
                         break;
                     case ERROR:
                         try {
                             exe.postFetchFailure(value.getError());
                         } catch (Exception e) {
-                            handleException(e);
+                            LOG.warn("Failed to execute postFetchFailure: {}", e.toString(), e);
                         }
                         break;
                 }
@@ -120,6 +123,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
             @Override
             public void onError(Throwable t) {
+                activeRequests.decrementAndGet();
                 try {
                     if (exe != null) {
                         exe.postFetchFailure(t);
@@ -129,22 +133,26 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
                 } catch (DbException e) {
                     LOG.error("Could not handle failure", e);
                 }
-                exe.postFetchFinally();
+                try {
+                    exe.postFetchFinally();
+                } catch (Exception e) {
+                    LOG.error("Failed to execute postFetchFinally after error: {}", e.toString(), e);
+                }
             }
 
             @Override
             public void onCompleted() {
-                exe.postFetchFinally();
                 activeRequests.decrementAndGet();
-                responseObserver.onCompleted();
-            }
-
-            private void handleException(Exception e) {
-                LOG.warn(e.toString(), e);
-                Status status = Status.UNKNOWN.withDescription(e.toString());
-                activeRequests.decrementAndGet();
-                responseObserver.onError(status.asException());
-                exe.postFetchFinally();
+                try {
+                    responseObserver.onCompleted();
+                } catch (Exception e) {
+                    LOG.error("Failed to execute onCompleted: {}", e.toString(), e);
+                }
+                try {
+                    exe.postFetchFinally();
+                } catch (Exception e) {
+                    LOG.error("Failed to execute postFetchFinally: {}", e.toString(), e);
+                }
             }
         };
     }

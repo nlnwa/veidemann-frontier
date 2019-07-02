@@ -112,5 +112,10 @@ public class FrontierServiceTestIT {
             }
         }
         System.out.println("STATE " + jes.getExecutionsStateMap());
+
+        Thread.sleep(2000);
+        long stop = System.currentTimeMillis();
+        harvesterMock.close();
+        System.out.printf("Stopping in %dms\n", (System.currentTimeMillis() - stop));
     }
 }

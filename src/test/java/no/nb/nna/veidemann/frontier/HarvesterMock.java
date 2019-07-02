@@ -24,14 +24,12 @@ import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
-import no.nb.nna.veidemann.harvester.browsercontroller.RenderResult;
 import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -44,6 +42,7 @@ public class HarvesterMock {
     private final static PageHarvest NEW_PAGE_REQUEST = PageHarvest.newBuilder().setRequestNextPage(true).build();
     private final FrontierGrpc.FrontierStub frontierAsyncStub;
     private final ExecutorService exe;
+    private boolean shouldRun = true;
 
     public HarvesterMock(FrontierStub frontierAsyncStub) {
         this.frontierAsyncStub = frontierAsyncStub;
@@ -54,11 +53,17 @@ public class HarvesterMock {
         for (int i = 0; i < NUM_HARVESTERS; i++) {
             exe.submit((Callable<Void>) () -> {
                 Harvester h = new Harvester();
-                while (true) {
+                while (shouldRun) {
                     h.harvest();
                 }
+                return null;
             });
         }
+    }
+
+    public void close() {
+        shouldRun = false;
+        exe.shutdown();
     }
 
     private class Harvester {
@@ -105,7 +110,7 @@ public class HarvesterMock {
                 // In Scope links
                 for (int i = 0; i < 5; i += 2) {
                     QueuedUri.Builder qUri = QueuedUri.newBuilder()
-                            .setUri(fetchUri.getUri() + "/p" + (i%5))
+                            .setUri(fetchUri.getUri() + "/p" + (i % 5))
                             .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
                             .setJobExecutionId(fetchUri.getJobExecutionId())
                             .setExecutionId(fetchUri.getExecutionId())
@@ -117,7 +122,7 @@ public class HarvesterMock {
                 for (int i = 0; i < 15; i += 2) {
                     String url = String.format("http://stress-%06d.com", RandomUtils.nextInt(0, 50));
                     QueuedUri.Builder qUri = QueuedUri.newBuilder()
-                            .setUri(url + "/p" + (i%2))
+                            .setUri(url + "/p" + (i % 2))
                             .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
                             .setJobExecutionId(fetchUri.getJobExecutionId())
                             .setExecutionId(fetchUri.getExecutionId())
@@ -141,27 +146,16 @@ public class HarvesterMock {
                 }
 
                 try {
-                    RenderResult result = new RenderResult()
-                            .withBytesDownloaded(10l)
-                            .withPageFetchTimeMs(10l)
-                            .withUriCount(4)
-                            .withOutlinks(outlinks);
-
                     PageHarvest.Builder reply = PageHarvest.newBuilder();
 
-                    if (result.hasError()) {
-                        reply.setError(result.getError());
-                        requestObserver.onNext(reply.build());
-                    } else {
-                        reply.getMetricsBuilder()
-                                .setBytesDownloaded(result.getBytesDownloaded())
-                                .setUriCount(result.getUriCount());
-                        requestObserver.onNext(reply.build());
+                    reply.getMetricsBuilder()
+                            .setBytesDownloaded(10l)
+                            .setUriCount(4);
+                    requestObserver.onNext(reply.build());
 
-                        result.getOutlinks().forEach(ol -> {
-                            requestObserver.onNext(PageHarvest.newBuilder().setOutlink(ol).build());
-                        });
-                    }
+                    outlinks.forEach(ol -> {
+                        requestObserver.onNext(PageHarvest.newBuilder().setOutlink(ol).build());
+                    });
 
                     requestObserver.onCompleted();
                 } catch (Exception t) {
