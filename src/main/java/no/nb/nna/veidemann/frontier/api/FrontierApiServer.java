@@ -34,6 +34,7 @@ public class FrontierApiServer implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(FrontierApiServer.class);
 
     private final Server server;
+    private final FrontierService frontierService;
 
     private final Frontier frontier;
 
@@ -49,7 +50,8 @@ public class FrontierApiServer implements AutoCloseable {
                         ServerTracingInterceptor.ServerRequestAttribute.METHOD_TYPE)
                 .build();
 
-        server = serverBuilder.addService(tracingInterceptor.intercept(new FrontierService(frontier))).build();
+        frontierService = new FrontierService(frontier);
+        server = serverBuilder.addService(tracingInterceptor.intercept(frontierService)).build();
     }
 
     public FrontierApiServer start() {

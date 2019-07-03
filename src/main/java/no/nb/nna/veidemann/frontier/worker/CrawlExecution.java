@@ -187,7 +187,7 @@ public class CrawlExecution {
     /**
      * Do post processing after a successful fetch.
      */
-    public void postFetchSuccess(Metrics metrics) {
+    public synchronized void postFetchSuccess(Metrics metrics) {
         MDC.put("eid", qUri.getExecutionId());
         MDC.put("uri", qUri.getUri());
 
@@ -201,7 +201,7 @@ public class CrawlExecution {
      *
      * @param error the Error causing the failure
      */
-    public void postFetchFailure(Error error) throws DbException {
+    public synchronized void postFetchFailure(Error error) throws DbException {
         MDC.put("eid", qUri.getExecutionId());
         MDC.put("uri", qUri.getUri());
 
@@ -214,7 +214,7 @@ public class CrawlExecution {
      *
      * @param t the exception thrown
      */
-    public void postFetchFailure(Throwable t) throws DbException {
+    public synchronized void postFetchFailure(Throwable t) throws DbException {
         MDC.put("eid", qUri.getExecutionId());
         MDC.put("uri", qUri.getUri());
 
@@ -227,7 +227,7 @@ public class CrawlExecution {
      * </p>
      * This should be run regardless of if we fetched anything or if the fetch failed in any way.
      */
-    public void postFetchFinally() {
+    public synchronized void postFetchFinally() {
         if (finalized) {
             return;
         }
@@ -284,7 +284,7 @@ public class CrawlExecution {
         span.finish();
     }
 
-    public void queueOutlink(QueuedUri outlink) throws DbException {
+    public synchronized void queueOutlink(QueuedUri outlink) throws DbException {
         outlinkHandler.queueOutlink(outlink);
     }
 
