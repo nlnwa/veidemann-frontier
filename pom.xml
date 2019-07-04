@@ -179,6 +179,9 @@
                         <environment>
                             <WORK_DIR>/workdir</WORK_DIR>
                         </environment>
+                        <jvmFlags>
+                            <jvmFlag>-Dfile.encoding=UTF-8</jvmFlag>
+                        </jvmFlags>
                     </container>
                 </configuration>
             </plugin>
