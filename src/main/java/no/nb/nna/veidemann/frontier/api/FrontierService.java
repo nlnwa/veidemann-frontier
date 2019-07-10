@@ -73,6 +73,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
     @Override
     public StreamObserver<PageHarvest> getNextPage(StreamObserver<PageHarvestSpec> responseObserver) {
         frontier.setCurrentClientCount(activeRequests.incrementAndGet());
+        LOG.trace("Client connected. Currently active clients: {}", activeRequests.get());
         return new StreamObserver<PageHarvest>() {
             CrawlExecution exe;
 
@@ -80,12 +81,15 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
             public void onNext(PageHarvest value) {
                 switch (value.getMsgCase()) {
                     case REQUESTNEXTPAGE:
+                        LOG.trace("Got request for new URI");
                         try {
                             PageHarvestSpec pageHarvestSpec = null;
                             while (pageHarvestSpec == null) {
                                 exe = frontier.getNextPageToFetch();
+                                LOG.trace("Found candidate URI {}", exe.getUri());
                                 pageHarvestSpec = exe.preFetch();
                                 if (pageHarvestSpec == null) {
+                                    LOG.trace("Prefetch denied fetch of {}", exe.getUri());
                                     exe.postFetchFinally();
                                 }
                             }
