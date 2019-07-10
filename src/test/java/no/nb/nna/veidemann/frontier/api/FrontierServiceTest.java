@@ -61,6 +61,7 @@ public class FrontierServiceTest {
 
         when(frontierMock.getNextPageToFetch()).thenReturn(crawlExecutionMock);
 
+        when(crawlExecutionMock.getUri()).thenReturn(null);
         when(crawlExecutionMock.preFetch()).thenReturn(harvestSpec1, harvestSpec2);
         doNothing()
                 .doThrow(new RuntimeException("Simulated exception in postFetchSuccess"))
@@ -87,6 +88,7 @@ public class FrontierServiceTest {
 
         verify(frontierMock, times(7)).getNextPageToFetch();
         verify(frontierMock, times(7)).setCurrentClientCount(anyInt());
+        verify(crawlExecutionMock, times(7)).getUri();
         verify(crawlExecutionMock, times(7)).preFetch();
         verify(crawlExecutionMock, times(7)).postFetchFinally();
         verify(crawlExecutionMock, times(4)).postFetchSuccess(any());
