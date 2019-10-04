@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.github.nlnwa</groupId>
     <artifactId>veidemann-frontier</artifactId>
@@ -30,9 +31,16 @@
 
         <log4j.version>2.7</log4j.version>
         <io.prometheus.version>0.5.0</io.prometheus.version>
+        <io.grpc.version>1.20.0</io.grpc.version>
 
         <!--Docker container versions for integration tests-->
         <rethinkdb.version>2.3.6</rethinkdb.version>
+
+        <!-- Docker auth credentials -->
+        <!--suppress UnresolvedMavenProperty -->
+        <docker.username>${env.DOCKER_USERNAME}</docker.username>
+        <!--suppress UnresolvedMavenProperty -->
+        <docker.password>${env.DOCKER_PASSWORD}</docker.password>
     </properties>
 
     <repositories>
@@ -59,15 +67,23 @@
             <artifactId>veidemann-rethinkdbadapter</artifactId>
             <version>${veidemann.rethinkdbadapter.version}</version>
         </dependency>
+
         <dependency>
             <groupId>com.github.nlnwa</groupId>
             <artifactId>veidemann-commons</artifactId>
             <version>${veidemann.commons.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.netpreserve.commons</groupId>
             <artifactId>webarchive-commons-uri</artifactId>
             <version>2.0.0-SNAPSHOT</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty</artifactId>
+            <version>${io.grpc.version}</version>
         </dependency>
 
         <dependency>
@@ -86,7 +102,7 @@
         <dependency>
             <groupId>com.typesafe</groupId>
             <artifactId>config</artifactId>
-            <version>1.3.1</version>
+            <version>1.3.3</version>
         </dependency>
 
         <!-- Do all logging thru Log4j -->
@@ -155,12 +171,54 @@
     </dependencies>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>2.19.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>io.fabric8</groupId>
+                    <artifactId>docker-maven-plugin</artifactId>
+                    <version>0.29.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.0.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>com.google.cloud.tools</groupId>
+                    <artifactId>jib-maven-plugin</artifactId>
+                    <version>1.6.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>3.0.0-M3</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>3.0.0</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1C</forkCount>
+                    <reuseForks>false</reuseForks>
+                </configuration>
+            </plugin>
             <!-- Make version number available for application -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.0.2</version>
                 <configuration>
                     <archive>
                         <manifest>
@@ -172,7 +230,6 @@
             <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>
-                <version>1.2.0</version>
                 <configuration>
                     <to>
                         <image>docker.io/norsknettarkiv/${project.artifactId}</image>
@@ -180,8 +237,8 @@
                             <tag>${docker.tag}</tag>
                         </tags>
                         <auth>
-                            <username>${env.DOCKER_USERNAME}</username>
-                            <password>${env.DOCKER_PASSWORD}</password>
+                            <username>${docker.username}</username>
+                            <password>${docker.password}</password>
                         </auth>
                     </to>
                     <container>
@@ -224,6 +281,7 @@
                 </plugins>
             </build>
         </profile>
+
         <profile>
             <id>docker-build-and-push</id>
             <build>
@@ -243,6 +301,7 @@
                 </plugins>
             </build>
         </profile>
+
         <profile>
             <id>integration-tests</id>
             <build>
@@ -250,7 +309,6 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>
-                        <version>3.0.0</version>
                         <executions>
                             <execution>
                                 <id>get-local-ip</id>
@@ -285,98 +343,9 @@
                                 <id>prepare-tests</id>
                                 <phase>pre-integration-test</phase>
                                 <goals>
+                                    <goal>volume-create</goal>
                                     <goal>start</goal>
                                 </goals>
-                                <configuration>
-                                    <autoCreateCustomNetworks>true</autoCreateCustomNetworks>
-                                    <images>
-                                        <image>
-                                            <name>rethinkdb:${rethinkdb.version}</name>
-                                            <alias>db</alias>
-                                            <run>
-                                                <network>
-                                                    <mode>custom</mode>
-                                                    <name>frontier-test-net</name>
-                                                    <alias>db</alias>
-                                                </network>
-                                                <ports>
-                                                    <port>+db.host:db.port:28015</port>
-                                                </ports>
-                                                <log>
-                                                    <enabled>true</enabled>
-                                                </log>
-                                                <wait>
-                                                    <tcp>
-                                                        <mode>mapped</mode>
-                                                        <ports>
-                                                            <port>28015</port>
-                                                        </ports>
-                                                    </tcp>
-                                                    <time>20000</time>
-                                                </wait>
-                                            </run>
-                                        </image>
-                                        <image>
-                                            <name>norsknettarkiv/veidemann-db-initializer:${veidemann.rethinkdbadapter.version}</name>
-                                            <alias>db-initializer</alias>
-                                            <run>
-                                                <network>
-                                                    <mode>custom</mode>
-                                                    <name>frontier-test-net</name>
-                                                    <alias>db-initializer</alias>
-                                                </network>
-                                                <dependsOn>
-                                                    <container>db</container>
-                                                </dependsOn>
-                                                <env>
-                                                    <DB_HOST>db</DB_HOST>
-                                                    <DB_USER>admin</DB_USER>
-                                                    <DB_PASSWORD></DB_PASSWORD>
-                                                </env>
-                                                <log>
-                                                    <enabled>true</enabled>
-                                                </log>
-                                                <wait>
-                                                    <log>DB initialized</log>
-                                                    <time>60000</time>
-                                                </wait>
-                                            </run>
-                                        </image>
-                                        <image>
-                                            <name>norsknettarkiv/veidemann-frontier</name>
-                                            <alias>frontier</alias>
-                                            <run>
-                                                <network>
-                                                    <mode>custom</mode>
-                                                    <name>frontier-test-net</name>
-                                                    <alias>frontier</alias>
-                                                </network>
-                                                <ports>
-                                                    <port>+frontier.host:frontier.port:7700</port>
-                                                </ports>
-                                                <dependsOn>
-                                                    <container>db-initializer</container>
-                                                </dependsOn>
-                                                <env>
-                                                    <DB_HOST>db</DB_HOST>
-                                                    <ROBOTS_EVALUATOR_HOST>${local.ip}</ROBOTS_EVALUATOR_HOST>
-                                                    <ROBOTS_EVALUATOR_PORT>${robotsevaluator.port}</ROBOTS_EVALUATOR_PORT>
-                                                    <DNS_RESOLVER_HOST>${local.ip}</DNS_RESOLVER_HOST>
-                                                    <DNS_RESOLVER_PORT>${dnsresolver.port}</DNS_RESOLVER_PORT>
-                                                    <OOS_HANDLER_HOST>${local.ip}</OOS_HANDLER_HOST>
-                                                    <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
-                                                </env>
-                                                <log>
-                                                    <enabled>true</enabled>
-                                                </log>
-                                                <wait>
-                                                    <log>Veidemann Frontier .* started</log>
-                                                    <time>30000</time>
-                                                </wait>
-                                            </run>
-                                        </image>
-                                    </images>
-                                </configuration>
                             </execution>
                             <execution>
                                 <id>remove-tests</id>
@@ -389,6 +358,109 @@
                                 </configuration>
                             </execution>
                         </executions>
+                        <configuration>
+                            <autoCreateCustomNetworks>true</autoCreateCustomNetworks>
+                            <startParallel>false</startParallel>
+                            <volumes>
+                                <volume>
+                                    <name>frontier-rethink-data</name>
+                                </volume>
+                            </volumes>
+                            <images>
+                                <image>
+                                    <name>rethinkdb:${rethinkdb.version}</name>
+                                    <alias>db</alias>
+                                    <run>
+                                        <network>
+                                            <mode>custom</mode>
+                                            <name>frontier-test-net</name>
+                                            <alias>db</alias>
+                                        </network>
+                                        <ports>
+                                            <port>+db.host:db.port:28015</port>
+                                        </ports>
+                                        <volumes>
+                                            <bind>
+                                                <volume>frontier-rethink-data:/data</volume>
+                                            </bind>
+                                        </volumes>
+                                        <log>
+                                            <enabled>true</enabled>
+                                        </log>
+                                        <wait>
+                                            <log>Server ready.*</log>
+                                            <time>100000</time>
+                                        </wait>
+                                    </run>
+                                </image>
+                                <image>
+                                    <name>
+                                        norsknettarkiv/veidemann-db-initializer:${veidemann.rethinkdbadapter.version}
+                                    </name>
+                                    <alias>db-initializer</alias>
+                                    <run>
+                                        <network>
+                                            <mode>custom</mode>
+                                            <name>frontier-test-net</name>
+                                            <alias>db-initializer</alias>
+                                        </network>
+                                        <dependsOn>
+                                            <container>db</container>
+                                        </dependsOn>
+                                        <env>
+                                            <DB_HOST>db</DB_HOST>
+                                            <DB_USER>admin</DB_USER>
+                                        </env>
+                                        <log>
+                                            <enabled>true</enabled>
+                                        </log>
+                                        <wait>
+                                            <log>DB initialized</log>
+                                            <time>60000</time>
+                                        </wait>
+                                    </run>
+                                </image>
+                                <image>
+                                    <name>norsknettarkiv/veidemann-frontier</name>
+                                    <alias>frontier</alias>
+                                    <run>
+                                        <network>
+                                            <mode>custom</mode>
+                                            <name>frontier-test-net</name>
+                                            <alias>frontier</alias>
+                                        </network>
+                                        <ports>
+                                            <port>+frontier.host:frontier.port:7700</port>
+                                        </ports>
+                                        <dependsOn>
+                                            <container>db-initializer</container>
+                                        </dependsOn>
+                                        <env>
+                                            <DB_HOST>db</DB_HOST>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <ROBOTS_EVALUATOR_HOST>${local.ip}</ROBOTS_EVALUATOR_HOST>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <ROBOTS_EVALUATOR_PORT>${robotsevaluator.port}</ROBOTS_EVALUATOR_PORT>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <DNS_RESOLVER_HOST>${local.ip}</DNS_RESOLVER_HOST>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <DNS_RESOLVER_PORT>${dnsresolver.port}</DNS_RESOLVER_PORT>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <OOS_HANDLER_HOST>${local.ip}</OOS_HANDLER_HOST>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
+                                        </env>
+                                        <log>
+                                            <enabled>true</enabled>
+                                        </log>
+                                        <wait>
+                                            <log>Veidemann Frontier .* started</log>
+                                            <time>30000</time>
+                                        </wait>
+                                    </run>
+                                </image>
+                            </images>
+                        </configuration>
                     </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
@@ -403,13 +475,22 @@
                         </executions>
                         <configuration>
                             <systemPropertyVariables>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <db.host>${db.host}</db.host>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <db.port>${db.port}</db.port>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <frontier.host>${frontier.host}</frontier.host>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <frontier.port>${frontier.port}</frontier.port>
-                                <local.ip>${local.ip}</local.ip>
+                                <dnsresolver.host>localhost</dnsresolver.host>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <dnsresolver.port>${dnsresolver.port}</dnsresolver.port>
+                                <robotsevaluator.host>localhost</robotsevaluator.host>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <robotsevaluator.port>${robotsevaluator.port}</robotsevaluator.port>
+                                <ooshandler.host>localhost</ooshandler.host>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <ooshandler.port>${ooshandler.port}</ooshandler.port>
                             </systemPropertyVariables>
                         </configuration>

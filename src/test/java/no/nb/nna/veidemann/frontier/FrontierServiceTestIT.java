@@ -37,11 +37,15 @@ public class FrontierServiceTestIT {
 
     static int dbPort;
 
-    static String localIp;
+    static String dnsresolverHost;
 
     static int dnsresolverPort;
 
+    static String robotsevaluatorHost;
+
     static int robotsevaluatorPort;
+
+    static String ooshandlerHost;
 
     static int ooshandlerPort;
 
@@ -59,17 +63,23 @@ public class FrontierServiceTestIT {
     public static void init() throws DbConnectionException, DbQueryException {
         dbHost = System.getProperty("db.host");
         dbPort = Integer.parseInt(System.getProperty("db.port"));
-        localIp = System.getProperty("local.ip");
+
+        dnsresolverHost = System.getProperty("dnsresolver.host");
         dnsresolverPort = Integer.parseInt(System.getProperty("dnsresolver.port"));
+
+        robotsevaluatorHost = System.getProperty("robotsevaluator.host");
         robotsevaluatorPort = Integer.parseInt(System.getProperty("robotsevaluator.port"));
+
+        ooshandlerHost = System.getProperty("ooshandler.host");
         ooshandlerPort = Integer.parseInt(System.getProperty("ooshandler.port"));
+
         frontierHost = System.getProperty("frontier.host");
         frontierPort = Integer.parseInt(System.getProperty("frontier.port"));
 
         System.out.println("      DB: " + dbHost + ":" + dbPort);
-        System.out.println("     DNS: " + localIp + ":" + dnsresolverPort);
-        System.out.println("  ROBOTS: " + localIp + ":" + robotsevaluatorPort);
-        System.out.println("     OOS: " + localIp + ":" + ooshandlerPort);
+        System.out.println("     DNS: " + dnsresolverHost + ":" + dnsresolverPort);
+        System.out.println("  ROBOTS: " + robotsevaluatorHost + ":" + robotsevaluatorPort);
+        System.out.println("     OOS: " + ooshandlerHost + ":" + ooshandlerPort);
         System.out.println("FRONTIER: " + frontierHost + ":" + frontierPort);
 
         if (!DbService.isConfigured()) {
