@@ -24,11 +24,8 @@ import io.prometheus.client.hotspot.DefaultExports;
 import no.nb.nna.veidemann.commons.client.DnsServiceClient;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
-import no.nb.nna.veidemann.commons.db.DbAdapter;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.opentracing.TracerFactory;
-import no.nb.nna.veidemann.db.RethinkDbAdapter;
-import no.nb.nna.veidemann.db.RethinkDbConnection;
 import no.nb.nna.veidemann.frontier.api.FrontierApiServer;
 import no.nb.nna.veidemann.frontier.settings.Settings;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
@@ -87,7 +84,12 @@ public class FrontierService {
                      SETTINGS.getOutOfScopeHandlerHost(), SETTINGS.getOutOfScopeHandlerPort());
 
              Frontier frontier = new Frontier(robotsServiceClient, dnsServiceClient, outOfScopeHandlerClient);
-             FrontierApiServer apiServer = new FrontierApiServer(SETTINGS.getApiPort(), frontier).start();) {
+
+             FrontierApiServer apiServer = new FrontierApiServer(SETTINGS.getApiPort(), SETTINGS.getTerminationGracePeriodSeconds(), frontier);) {
+
+            registerShutdownHook();
+
+            apiServer.start();
 
             LOG.info("Veidemann Frontier (v. {}) started",
                     FrontierService.class.getPackage().getImplementationVersion());
@@ -98,13 +100,32 @@ public class FrontierService {
                 // Interrupted, shut down
             }
         } catch (ConfigException ex) {
-            System.err.println("Configuration error: " + ex.getLocalizedMessage());
+            LOG.error("Configuration error: {}", ex.getLocalizedMessage());
             System.exit(1);
         } catch (Exception ex) {
             LOG.error("Could not start service", ex);
+            System.exit(1);
         }
 
         return this;
+    }
+
+    private void registerShutdownHook() {
+        Thread mainThread = Thread.currentThread();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            // Use stderr here since the logger may have been reset by its JVM shutdown hook.
+            System.err.println("*** shutting down gRPC server since JVM is shutting down");
+
+            mainThread.interrupt();
+            try {
+                mainThread.join();
+            } catch (InterruptedException e) {
+                //
+            }
+
+            System.err.println("*** gracefully shut down");
+        }));
     }
 
     /**

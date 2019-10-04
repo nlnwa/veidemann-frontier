@@ -40,6 +40,8 @@ public class Settings extends CommonSettings {
 
     private int prometheusPort;
 
+    private int terminationGracePeriodSeconds;
+
     public int getApiPort() {
         return apiPort;
     }
@@ -110,5 +112,13 @@ public class Settings extends CommonSettings {
 
     public void setPrometheusPort(int prometheusPort) {
         this.prometheusPort = prometheusPort;
+    }
+
+    public int getTerminationGracePeriodSeconds() {
+        return terminationGracePeriodSeconds;
+    }
+
+    public void setTerminationGracePeriodSeconds(int terminationGracePeriodSeconds) {
+        this.terminationGracePeriodSeconds = terminationGracePeriodSeconds;
     }
 }
