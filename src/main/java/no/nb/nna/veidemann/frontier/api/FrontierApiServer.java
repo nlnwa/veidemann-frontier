@@ -25,6 +25,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  *
@@ -34,23 +37,24 @@ public class FrontierApiServer implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(FrontierApiServer.class);
 
     private final Server server;
-    private final FrontierService frontierService;
+    private final ExecutorService threadPool;
+    private long shutdownTimeoutMillis = 60 * 1000;
 
-    private final Frontier frontier;
-
-    public FrontierApiServer(int port, Frontier frontier) {
+    public FrontierApiServer(int port, int shutdownTimeoutSeconds, Frontier frontier) {
         this(ServerBuilder.forPort(port), frontier);
+        this.shutdownTimeoutMillis = shutdownTimeoutSeconds * 1000;
     }
 
     public FrontierApiServer(ServerBuilder<?> serverBuilder, Frontier frontier) {
-        this.frontier = frontier;
-
         ServerTracingInterceptor tracingInterceptor = new ServerTracingInterceptor.Builder(GlobalTracer.get())
                 .withTracedAttributes(ServerTracingInterceptor.ServerRequestAttribute.CALL_ATTRIBUTES,
                         ServerTracingInterceptor.ServerRequestAttribute.METHOD_TYPE)
                 .build();
 
-        frontierService = new FrontierService(frontier);
+        threadPool = Executors.newCachedThreadPool();
+        serverBuilder.executor(threadPool);
+
+        FrontierService frontierService = new FrontierService(frontier);
         server = serverBuilder.addService(tracingInterceptor.intercept(frontierService)).build();
     }
 
@@ -59,16 +63,6 @@ public class FrontierApiServer implements AutoCloseable {
             server.start();
 
             LOG.info("Controller api listening on {}", server.getPort());
-
-            Runtime.getRuntime().addShutdownHook(new Thread() {
-                @Override
-                public void run() {
-                    // Use stderr here since the logger may have been reset by its JVM shutdown hook.
-                    System.err.println("*** shutting down gRPC server since JVM is shutting down");
-                    FrontierApiServer.this.close();
-                }
-
-            });
 
             return this;
         } catch (IOException ex) {
@@ -79,8 +73,20 @@ public class FrontierApiServer implements AutoCloseable {
 
     @Override
     public void close() {
-        if (server != null) {
-            server.shutdown();
+        long startTime = System.currentTimeMillis();
+        server.shutdown();
+        try {
+            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
+            server.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            server.shutdownNow();
+        }
+        threadPool.shutdown();
+        try {
+            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
+            threadPool.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            threadPool.shutdownNow();
         }
         System.err.println("*** server shut down");
     }
