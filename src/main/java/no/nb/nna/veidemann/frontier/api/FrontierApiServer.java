@@ -38,11 +38,11 @@ public class FrontierApiServer implements AutoCloseable {
 
     private final Server server;
     private final ExecutorService threadPool;
-    private int shutdownTimeoutSeconds = 60;
+    private long shutdownTimeoutMillis = 60 * 1000;
 
     public FrontierApiServer(int port, int shutdownTimeoutSeconds, Frontier frontier) {
         this(ServerBuilder.forPort(port), frontier);
-        this.shutdownTimeoutSeconds = shutdownTimeoutSeconds;
+        this.shutdownTimeoutMillis = shutdownTimeoutSeconds * 1000;
     }
 
     public FrontierApiServer(ServerBuilder<?> serverBuilder, Frontier frontier) {
@@ -76,14 +76,15 @@ public class FrontierApiServer implements AutoCloseable {
         long startTime = System.currentTimeMillis();
         server.shutdown();
         try {
-            server.awaitTermination();
+            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
+            server.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             server.shutdownNow();
         }
         threadPool.shutdown();
-        long timeoutSeconds = shutdownTimeoutSeconds - ((System.currentTimeMillis() - startTime) / 1000);
         try {
-            threadPool.awaitTermination(timeoutSeconds, TimeUnit.SECONDS);
+            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
+            threadPool.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             threadPool.shutdownNow();
         }
