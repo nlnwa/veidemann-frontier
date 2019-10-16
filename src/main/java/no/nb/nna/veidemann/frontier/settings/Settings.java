@@ -38,6 +38,8 @@ public class Settings extends CommonSettings {
 
     private int outOfScopeHandlerPort;
 
+    private int prometheusPort;
+
     public int getApiPort() {
         return apiPort;
     }
@@ -100,5 +102,13 @@ public class Settings extends CommonSettings {
 
     public void setOutOfScopeHandlerPort(int outOfScopeHandlerPort) {
         this.outOfScopeHandlerPort = outOfScopeHandlerPort;
+    }
+
+    public int getPrometheusPort() {
+        return prometheusPort;
+    }
+
+    public void setPrometheusPort(int prometheusPort) {
+        this.prometheusPort = prometheusPort;
     }
 }

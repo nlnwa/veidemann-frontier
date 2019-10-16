@@ -19,6 +19,8 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigBeanFactory;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
+import io.prometheus.client.exporter.HTTPServer;
+import io.prometheus.client.hotspot.DefaultExports;
 import no.nb.nna.veidemann.commons.client.DnsServiceClient;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
@@ -32,6 +34,8 @@ import no.nb.nna.veidemann.frontier.settings.Settings;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
 
 /**
  * Class for launching the service.
@@ -63,6 +67,14 @@ public class FrontierService {
      * @return this instance
      */
     public FrontierService start() {
+        DefaultExports.initialize();
+        try {
+            HTTPServer server = new HTTPServer(SETTINGS.getPrometheusPort());
+        } catch (IOException ex) {
+            System.err.println("Could not start Prometheus exporter: " + ex.getLocalizedMessage());
+            System.exit(3);
+        }
+
         try (DbService db = DbService.configure(SETTINGS);
 
              RobotsServiceClient robotsServiceClient = new RobotsServiceClient(
