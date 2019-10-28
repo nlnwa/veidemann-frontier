@@ -26,7 +26,7 @@
         <maven.compiler.target>11</maven.compiler.target>
         <docker.tag>latest</docker.tag>
 
-        <veidemann.commons.version>0.3.11</veidemann.commons.version>
+        <veidemann.commons.version>0.3.12</veidemann.commons.version>
         <veidemann.rethinkdbadapter.version>0.3.18</veidemann.rethinkdbadapter.version>
 
         <log4j.version>2.7</log4j.version>
