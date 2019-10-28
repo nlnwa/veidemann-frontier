@@ -27,7 +27,7 @@
         <docker.tag>latest</docker.tag>
 
         <veidemann.commons.version>0.3.12</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.3.18</veidemann.rethinkdbadapter.version>
+        <veidemann.rethinkdbadapter.version>0.3.19</veidemann.rethinkdbadapter.version>
 
         <log4j.version>2.7</log4j.version>
         <io.prometheus.version>0.5.0</io.prometheus.version>
@@ -191,7 +191,7 @@
                 <plugin>
                     <groupId>com.google.cloud.tools</groupId>
                     <artifactId>jib-maven-plugin</artifactId>
-                    <version>1.6.1</version>
+                    <version>1.7.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

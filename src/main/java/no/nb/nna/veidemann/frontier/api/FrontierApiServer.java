@@ -62,7 +62,7 @@ public class FrontierApiServer implements AutoCloseable {
         try {
             server.start();
 
-            LOG.info("Controller api listening on {}", server.getPort());
+            LOG.info("Frontier listening on {}", server.getPort());
 
             return this;
         } catch (IOException ex) {
