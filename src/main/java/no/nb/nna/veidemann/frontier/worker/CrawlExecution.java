@@ -316,17 +316,24 @@ public class CrawlExecution {
     }
 
     private void retryUri(QueuedUriWrapper qUri, Error error) throws DbException {
-        LOG.info("Failed fetching ({}) at attempt #{}", qUri, qUri.getRetries());
-        qUri.incrementRetries()
-                .setEarliestFetchDelaySeconds(politenessConfig.getPolitenessConfig().getRetryDelaySeconds())
-                .setError(error);
+        ExtraStatusCodes eCode = ExtraStatusCodes.fromFetchError(error);
+        if (eCode.isTemporary()) {
+            LOG.info("Failed fetching ({}) at attempt #{}", qUri, qUri.getRetries());
+            qUri.incrementRetries()
+                    .setEarliestFetchDelaySeconds(politenessConfig.getPolitenessConfig().getRetryDelaySeconds())
+                    .setError(error);
 
-        if (LimitsCheck.isRetryLimitReached(politenessConfig, qUri)) {
-            LOG.info("Failed fetching '{}' due to retry limit", qUri);
-            status.incrementDocumentsFailed();
+            if (LimitsCheck.isRetryLimitReached(politenessConfig, qUri)) {
+                LOG.info("Failed fetching '{}' due to retry limit", qUri);
+                status.incrementDocumentsFailed();
+            } else {
+                qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
+                qUri.addUriToQueue();
+            }
         } else {
-            qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
-            qUri.addUriToQueue();
+            LOG.info("Failed fetching ({}). URI will not be retried", qUri);
+            qUri.setError(error);
+            status.incrementDocumentsFailed();
         }
     }
 
