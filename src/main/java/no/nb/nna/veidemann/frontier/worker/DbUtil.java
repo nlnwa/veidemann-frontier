@@ -43,6 +43,6 @@ public class DbUtil {
                 .setFetchTimeStamp(ProtoUtils.getNowTs())
                 .setCollectionFinalName(qUri.getCollectionName())
                 .build();
-        DbService.getInstance().getDbAdapter().saveCrawlLog(crawlLog);
+        DbService.getInstance().getExecutionsAdapter().saveCrawlLog(crawlLog);
     }
 }
