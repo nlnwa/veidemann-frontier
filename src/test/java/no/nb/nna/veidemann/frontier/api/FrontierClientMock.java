@@ -45,7 +45,7 @@ public class FrontierClientMock implements AutoCloseable {
     private final FrontierGrpc.FrontierStub asyncStub;
 
     /**
-     * Construct client for accessing RouteGuide server using the existing channel.
+     * Construct client for accessing Frontier using the existing channel.
      */
     public FrontierClientMock(ManagedChannelBuilder<?> channelBuilder) {
         ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
@@ -56,10 +56,7 @@ public class FrontierClientMock implements AutoCloseable {
     public void requestNext(int responseType) {
         ResponseObserver responseObserver = new ResponseObserver(responseType);
 
-        FrontierGrpc.FrontierStub s = asyncStub;
-
-        StreamObserver<PageHarvest> requestObserver = s
-                .getNextPage(responseObserver);
+        StreamObserver<PageHarvest> requestObserver = asyncStub.getNextPage(responseObserver);
         responseObserver.setRequestObserver(requestObserver);
 
         try {

@@ -24,14 +24,13 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
-        <docker.tag>latest</docker.tag>
+        <docker.tag>${project.version}</docker.tag>
 
-        <veidemann.commons.version>0.3.12</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.3.19</veidemann.rethinkdbadapter.version>
+        <veidemann.commons.version>0.4.0</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.4.0</veidemann.rethinkdbadapter.version>
 
         <log4j.version>2.7</log4j.version>
-        <io.prometheus.version>0.5.0</io.prometheus.version>
-        <io.grpc.version>1.20.0</io.grpc.version>
+        <io.prometheus.version>0.8.0</io.prometheus.version>
 
         <!--Docker container versions for integration tests-->
         <rethinkdb.version>2.3.6</rethinkdb.version>
@@ -78,12 +77,6 @@
             <groupId>org.netpreserve.commons</groupId>
             <artifactId>webarchive-commons-uri</artifactId>
             <version>2.0.0-SNAPSHOT</version>
-        </dependency>
-
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty</artifactId>
-            <version>${io.grpc.version}</version>
         </dependency>
 
         <dependency>
