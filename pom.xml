@@ -27,13 +27,14 @@
         <docker.tag>${project.version}</docker.tag>
 
         <veidemann.commons.version>0.4.0</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.4.0</veidemann.rethinkdbadapter.version>
+        <veidemann.rethinkdbadapter.version>0.4.1</veidemann.rethinkdbadapter.version>
 
         <log4j.version>2.7</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
 
         <!--Docker container versions for integration tests-->
         <rethinkdb.version>2.3.6</rethinkdb.version>
+        <redis.version>5.0.7-alpine</redis.version>
 
         <!-- Docker auth credentials -->
         <!--suppress UnresolvedMavenProperty -->
@@ -414,6 +415,26 @@
                                     </run>
                                 </image>
                                 <image>
+                                    <name>
+                                        redis:${redis.version}
+                                    </name>
+                                    <alias>redis</alias>
+                                    <run>
+                                        <network>
+                                            <mode>custom</mode>
+                                            <name>frontier-test-net</name>
+                                            <alias>redis</alias>
+                                        </network>
+                                        <log>
+                                            <enabled>true</enabled>
+                                        </log>
+                                        <wait>
+                                            <log>Ready to accept connections</log>
+                                            <time>60000</time>
+                                        </wait>
+                                    </run>
+                                </image>
+                                <image>
                                     <name>norsknettarkiv/veidemann-frontier</name>
                                     <alias>frontier</alias>
                                     <run>
@@ -442,6 +463,9 @@
                                             <OOS_HANDLER_HOST>${local.ip}</OOS_HANDLER_HOST>
                                             <!--suppress UnresolvedMavenProperty -->
                                             <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
+                                            <LOCK_REDIS_HOST>redis</LOCK_REDIS_HOST>
+                                            <LOCK_REDIS_PORT>6379</LOCK_REDIS_PORT>
+<!--                                            <JAVA_TOOL_OPTIONS>-Dlock.redis.port=6379</JAVA_TOOL_OPTIONS>-->
                                         </env>
                                         <log>
                                             <enabled>true</enabled>

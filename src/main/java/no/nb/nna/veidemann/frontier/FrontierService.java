@@ -48,6 +48,9 @@ public class FrontierService {
         config.checkValid(ConfigFactory.defaultReference());
         SETTINGS = ConfigBeanFactory.create(config, Settings.class);
 
+        System.setProperty("lock.redis.host", SETTINGS.getLockRedisHost());
+        System.setProperty("lock.redis.port", SETTINGS.getLockRedisPort());
+
         TracerFactory.init("Frontier");
     }
 
