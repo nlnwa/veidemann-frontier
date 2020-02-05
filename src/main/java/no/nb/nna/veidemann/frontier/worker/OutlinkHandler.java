@@ -77,7 +77,7 @@ public class OutlinkHandler {
             if (keySet.size() == 1) {
                 String key = keySet.iterator().next();
                 DistributedLock lock = DbService.getInstance()
-                        .createDistributedLock(new Key("quri", key), 10);
+                        .createDistributedLock(new Key("quri", key), 300);
                 lock.lock();
                 try {
                     processOutlinks(queuedUriMap.get(key));
@@ -90,7 +90,7 @@ public class OutlinkHandler {
                 for (String key : keySet.toArray(new String[0])) {
                     Collection<QueuedUriWrapper> v = queuedUriMap.get(key);
                     DistributedLock lock = DbService.getInstance()
-                            .createDistributedLock(new Key("quri", key), 10);
+                            .createDistributedLock(new Key("quri", key), 300);
                     if (lock.tryLock()) {
                         try {
                             processOutlinks(v);
