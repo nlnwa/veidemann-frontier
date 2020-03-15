@@ -25,6 +25,7 @@ import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest.Metrics;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
@@ -343,9 +344,19 @@ public class CrawlExecution {
     }
 
     private void endCrawl(CrawlExecutionStatus.State state, Error error) throws DbException {
-        status.setEndState(state)
-                .setError(error)
-                .removeCurrentUri(qUri).saveStatus();
+        if (status.getState() == State.FAILED) {
+            status.setEndState(state)
+                    .setError(error)
+                    .removeCurrentUri(qUri)
+                    .incrementDocumentsDenied(DbService.getInstance().getCrawlQueueAdapter()
+                            .deleteQueuedUrisForExecution(status.getId()))
+                    .saveStatus();
+        } else {
+            status.setEndState(state)
+                    .setError(error)
+                    .removeCurrentUri(qUri)
+                    .saveStatus();
+        }
     }
 
     private boolean isManualAbort() throws DbException {
