@@ -1,0 +1,11 @@
+apiVersion: skaffold/v2beta6
+kind: Config
+build:
+  artifacts:
+    - image: norsknettarkiv/veidemann-frontier
+      jib: {}
+
+deploy:
+  kustomize:
+    paths:
+      - k8s

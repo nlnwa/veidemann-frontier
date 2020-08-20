@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veidemann-frontier
+spec:
+  template:
+    spec:
+      terminationGracePeriodSeconds: 3
+      containers:
+        - name: veidemann-frontier
+          env:
+            - name: TERMINATION_GRACE_PERIOD_SECONDS
+              value: "3"
+          volumeMounts:
+            - name: veidemann-config
+              mountPath: /tmp/what
+      volumes:
+        - name: workdir
+          emptyDir: {}
+        - name: veidemann-config
+          emptyDir: {}
+          configMap: # override

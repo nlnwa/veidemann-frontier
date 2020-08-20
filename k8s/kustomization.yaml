@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: veidemann
+
+commonLabels:
+  app.kubernetes.io/instance: veidemann-frontier
+  app.kubernetes.io/part-of: veidemann
+
+resources:
+  - github.com/nlnwa/veidemann/bases/veidemann-frontier
+
+patchesStrategicMerge:
+  - deployment_env_patch.yaml
+
+patchesJson6902:
+  - target:
+      kind: Deployment
+      name: veidemann-frontier
+      version: v1
+      group: apps
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/0/secretRef/name
+        value: skaffold-frontier-rethinkdb-env
+
+secretGenerator:
+  - name: skaffold-frontier-rethinkdb-env
+    literals:
+      - DB_USER=admin
+      - DB_PASSWORD=rethinkdb
