@@ -21,7 +21,6 @@ import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbException;
-import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.ProtoUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,7 +75,7 @@ public class LimitsCheck {
                 case UNRECOGNIZED:
                     status.setEndState(CrawlExecutionStatus.State.ABORTED_SIZE)
                             .incrementDocumentsDenied(
-                                    DbService.getInstance().getCrawlQueueAdapter()
+                                    frontier.getCrawlQueueManager()
                                             .deleteQueuedUrisForExecution(status.getId())
                             ).saveStatus();
             }
@@ -95,7 +94,7 @@ public class LimitsCheck {
                 case UNRECOGNIZED:
                     status.setEndState(CrawlExecutionStatus.State.ABORTED_TIMEOUT);
                     status.incrementDocumentsDenied(
-                            DbService.getInstance().getCrawlQueueAdapter()
+                            frontier.getCrawlQueueManager()
                                     .deleteQueuedUrisForExecution(status.getId())
                     ).saveStatus();
             }

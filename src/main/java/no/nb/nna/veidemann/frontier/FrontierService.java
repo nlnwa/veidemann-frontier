@@ -31,8 +31,11 @@ import no.nb.nna.veidemann.frontier.settings.Settings;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
 
 import java.io.IOException;
+import java.net.URI;
 
 /**
  * Class for launching the service.
@@ -79,7 +82,11 @@ public class FrontierService {
             System.exit(3);
         }
 
+        JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
+        jedisPoolConfig.setMaxTotal(16);
         try (DbService db = DbService.configure(SETTINGS);
+
+             JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getLockRedisHost() + ":" + SETTINGS.getLockRedisPort()));
 
              RobotsServiceClient robotsServiceClient = new RobotsServiceClient(
                      SETTINGS.getRobotsEvaluatorHost(), SETTINGS.getRobotsEvaluatorPort());
@@ -90,22 +97,17 @@ public class FrontierService {
              OutOfScopeHandlerClient outOfScopeHandlerClient = new OutOfScopeHandlerClient(
                      SETTINGS.getOutOfScopeHandlerHost(), SETTINGS.getOutOfScopeHandlerPort());
 
-             Frontier frontier = new Frontier(robotsServiceClient, dnsServiceClient, outOfScopeHandlerClient);
+             Frontier frontier = new Frontier(jedisPool, robotsServiceClient, dnsServiceClient, outOfScopeHandlerClient);
+        ) {
 
-             FrontierApiServer apiServer = new FrontierApiServer(SETTINGS.getApiPort(), SETTINGS.getTerminationGracePeriodSeconds(), frontier);) {
-
-            registerShutdownHook();
+            FrontierApiServer apiServer = new FrontierApiServer(SETTINGS.getApiPort(), SETTINGS.getTerminationGracePeriodSeconds(), frontier);
+            registerShutdownHook(apiServer);
 
             apiServer.start();
 
-            LOG.info("Veidemann Frontier (v. {}) started",
-                    FrontierService.class.getPackage().getImplementationVersion());
+            LOG.info("Veidemann Frontier (v. {}) started", System.getenv("VERSION"));
 
-            try {
-                Thread.currentThread().join();
-            } catch (InterruptedException ex) {
-                // Interrupted, shut down
-            }
+            apiServer.blockUntilShutdown();
         } catch (ConfigException ex) {
             LOG.error("Configuration error: {}", ex.getLocalizedMessage());
             System.exit(1);
@@ -117,21 +119,11 @@ public class FrontierService {
         return this;
     }
 
-    private void registerShutdownHook() {
-        Thread mainThread = Thread.currentThread();
-
+    private void registerShutdownHook(FrontierApiServer apiServer) {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             // Use stderr here since the logger may have been reset by its JVM shutdown hook.
             System.err.println("*** shutting down gRPC server since JVM is shutting down");
-
-            mainThread.interrupt();
-            try {
-                mainThread.join();
-            } catch (InterruptedException e) {
-                //
-            }
-
-            System.err.println("*** gracefully shut down");
+            apiServer.shutdown();
         }));
     }
 

@@ -32,13 +32,14 @@ import java.util.concurrent.TimeUnit;
 /**
  *
  */
-public class FrontierApiServer implements AutoCloseable {
+public class FrontierApiServer {
 
     private static final Logger LOG = LoggerFactory.getLogger(FrontierApiServer.class);
 
     private final Server server;
     private final ExecutorService threadPool;
     private long shutdownTimeoutMillis = 60 * 1000;
+    final FrontierService frontierService;
 
     public FrontierApiServer(int port, int shutdownTimeoutSeconds, Frontier frontier) {
         this(ServerBuilder.forPort(port), frontier);
@@ -51,10 +52,10 @@ public class FrontierApiServer implements AutoCloseable {
                         ServerTracingInterceptor.ServerRequestAttribute.METHOD_TYPE)
                 .build();
 
-        threadPool = Executors.newCachedThreadPool();
+        threadPool = Executors.newFixedThreadPool(128);
         serverBuilder.executor(threadPool);
 
-        FrontierService frontierService = new FrontierService(frontier);
+        frontierService = new FrontierService(frontier);
         server = serverBuilder.addService(tracingInterceptor.intercept(frontierService)).build();
     }
 
@@ -66,29 +67,30 @@ public class FrontierApiServer implements AutoCloseable {
 
             return this;
         } catch (IOException ex) {
-            close();
+            shutdown();
             throw new UncheckedIOException(ex);
         }
     }
 
-    @Override
-    public void close() {
+    public void shutdown() {
         long startTime = System.currentTimeMillis();
         server.shutdown();
+        frontierService.shutdown();
         try {
-            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
-            server.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
+            server.awaitTermination(shutdownTimeoutMillis - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            server.shutdownNow();
+            System.err.println("Interrupted while waiting for server shutdown");
         }
-        threadPool.shutdown();
         try {
-            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
-            threadPool.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
+            boolean gracefullStop = frontierService.awaitTermination(shutdownTimeoutMillis - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
+            if (gracefullStop) {
+                System.err.println("*** server shut down gracefully");
+            } else {
+                System.err.println("*** server shutdown timed out");
+            }
         } catch (InterruptedException e) {
-            threadPool.shutdownNow();
+            e.printStackTrace();
         }
-        System.err.println("*** server shut down");
     }
 
     /**
@@ -97,12 +99,11 @@ public class FrontierApiServer implements AutoCloseable {
     public void blockUntilShutdown() {
         if (server != null) {
             try {
-                server.awaitTermination();
+                frontierService.awaitTermination();
             } catch (InterruptedException ex) {
-                close();
+                shutdown();
                 throw new RuntimeException(ex);
             }
         }
     }
-
 }

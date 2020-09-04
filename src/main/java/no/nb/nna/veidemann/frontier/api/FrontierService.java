@@ -16,6 +16,7 @@
 package no.nb.nna.veidemann.frontier.api;
 
 import io.grpc.Status;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import io.opentracing.ActiveSpan;
 import io.opentracing.contrib.OpenTracingContextKey;
@@ -27,13 +28,11 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
-import no.nb.nna.veidemann.commons.db.DbException;
-import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
 /**
  *
@@ -43,12 +42,23 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
     private static final Logger LOG = LoggerFactory.getLogger(FrontierService.class);
 
     private final Frontier frontier;
+    final Context ctx = new Context();
 
     public FrontierService(Frontier frontier) {
         this.frontier = frontier;
     }
 
-    AtomicInteger activeRequests = new AtomicInteger();
+    public void shutdown() {
+        ctx.shutdown();
+    }
+
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+        return ctx.awaitTermination(timeout, unit);
+    }
+
+    public void awaitTermination() throws InterruptedException {
+        ctx.awaitTermination();
+    }
 
     @Override
     public void crawlSeed(CrawlSeedRequest request, StreamObserver<CrawlExecutionId> responseObserver) {
@@ -64,7 +74,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
             responseObserver.onNext(CrawlExecutionId.newBuilder().setId(reply.getId()).build());
             responseObserver.onCompleted();
         } catch (Exception e) {
-            LOG.error(e.getMessage(), e);
+            LOG.error("Crawl seed error: " + e.getMessage(), e);
             Status status = Status.UNKNOWN.withDescription(e.toString());
             responseObserver.onError(status.asException());
         }
@@ -72,92 +82,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public StreamObserver<PageHarvest> getNextPage(StreamObserver<PageHarvestSpec> responseObserver) {
-        frontier.setCurrentClientCount(activeRequests.incrementAndGet());
-        LOG.trace("Client connected. Currently active clients: {}", activeRequests.get());
-        return new StreamObserver<PageHarvest>() {
-            CrawlExecution exe;
-
-            @Override
-            public void onNext(PageHarvest value) {
-                switch (value.getMsgCase()) {
-                    case REQUESTNEXTPAGE:
-                        LOG.trace("Got request for new URI");
-                        try {
-                            PageHarvestSpec pageHarvestSpec = null;
-                            while (pageHarvestSpec == null) {
-                                exe = frontier.getNextPageToFetch();
-                                LOG.trace("Found candidate URI {}", exe.getUri());
-                                pageHarvestSpec = exe.preFetch();
-                                if (pageHarvestSpec == null) {
-                                    LOG.trace("Prefetch denied fetch of {}", exe.getUri());
-                                    exe.postFetchFinally();
-                                }
-                            }
-                            responseObserver.onNext(pageHarvestSpec);
-                        } catch (Exception e) {
-                            LOG.error("Error preparing new fetch: {}", e.toString(), e);
-                            Status status = Status.UNKNOWN.withDescription(e.toString());
-                            responseObserver.onError(status.asException());
-                            exe.postFetchFinally();
-                        }
-                        break;
-                    case METRICS:
-                        try {
-                            exe.postFetchSuccess(value.getMetrics());
-                        } catch (Exception e) {
-                            LOG.warn("Failed to execute postFetchSuccess: {}", e.toString(), e);
-                        }
-                        break;
-                    case OUTLINK:
-                        try {
-                            exe.queueOutlink(value.getOutlink());
-                        } catch (Exception e) {
-                            LOG.warn("Could not queue outlink '{}'", value.getOutlink().getUri(), e);
-                        }
-                        break;
-                    case ERROR:
-                        try {
-                            exe.postFetchFailure(value.getError());
-                        } catch (Exception e) {
-                            LOG.warn("Failed to execute postFetchFailure: {}", e.toString(), e);
-                        }
-                        break;
-                }
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                activeRequests.decrementAndGet();
-                try {
-                    if (exe != null) {
-                        exe.postFetchFailure(t);
-                    } else {
-                        LOG.error("Error before any action", t);
-                    }
-                } catch (DbException e) {
-                    LOG.error("Could not handle failure", e);
-                }
-                try {
-                    exe.postFetchFinally();
-                } catch (Exception e) {
-                    LOG.error("Failed to execute postFetchFinally after error: {}", e.toString(), e);
-                }
-            }
-
-            @Override
-            public void onCompleted() {
-                activeRequests.decrementAndGet();
-                try {
-                    responseObserver.onCompleted();
-                } catch (Exception e) {
-                    LOG.error("Failed to execute onCompleted: {}", e.toString(), e);
-                }
-                try {
-                    exe.postFetchFinally();
-                } catch (Exception e) {
-                    LOG.error("Failed to execute postFetchFinally: {}", e.toString(), e);
-                }
-            }
-        };
+        return new GetNextPageHandler(ctx.newRequestContext((ServerCallStreamObserver) responseObserver), frontier);
     }
+
 }

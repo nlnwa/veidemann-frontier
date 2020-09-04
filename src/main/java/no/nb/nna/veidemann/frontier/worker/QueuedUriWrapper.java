@@ -60,7 +60,7 @@ public class QueuedUriWrapper {
 
     private final String collectionName;
 
-    boolean justAdded = false;
+    final Frontier frontier;
 
     static final LoadingCache<ListRequest, List<ConfigObject>> chgConfigCache;
 
@@ -78,7 +78,8 @@ public class QueuedUriWrapper {
 
     }
 
-    private QueuedUriWrapper(QueuedUriOrBuilder uri, String collectionName) throws URISyntaxException, DbException {
+    private QueuedUriWrapper(Frontier frontier, QueuedUriOrBuilder uri, String collectionName) throws URISyntaxException, DbException {
+        this.frontier = frontier;
         this.collectionName = collectionName;
         if (uri instanceof QueuedUri.Builder) {
             wrapped = (QueuedUri.Builder) uri;
@@ -90,22 +91,22 @@ public class QueuedUriWrapper {
         }
     }
 
-    public static QueuedUriWrapper getQueuedUriWrapper(QueuedUri qUri, String collectionName) throws URISyntaxException, DbException {
+    public static QueuedUriWrapper getQueuedUriWrapper(Frontier frontier, QueuedUri qUri, String collectionName) throws URISyntaxException, DbException {
         requireNonEmpty(qUri.getUri(), "Empty URI string");
         requireNonEmpty(qUri.getJobExecutionId(), "Empty JobExecutionId");
         requireNonEmpty(qUri.getExecutionId(), "Empty ExecutionId");
         requireNonEmpty(qUri.getPolitenessRef(), "Empty PolitenessRef");
 
-        return new QueuedUriWrapper(qUri, collectionName);
+        return new QueuedUriWrapper(frontier, qUri, collectionName);
     }
 
-    public static QueuedUriWrapper getQueuedUriWrapper(QueuedUriWrapper parentUri, QueuedUri qUri, String collectionName) throws URISyntaxException, DbException {
+    public static QueuedUriWrapper getQueuedUriWrapper(Frontier frontier, QueuedUriWrapper parentUri, QueuedUri qUri, String collectionName) throws URISyntaxException, DbException {
         requireNonEmpty(qUri.getUri(), "Empty URI string");
         requireNonEmpty(parentUri.getJobExecutionId(), "Empty JobExecutionId");
         requireNonEmpty(parentUri.getExecutionId(), "Empty ExecutionId");
         requireNonEmpty(parentUri.getPolitenessRef(), "Empty PolitenessRef");
 
-        QueuedUriWrapper wrapper = new QueuedUriWrapper(qUri, collectionName)
+        QueuedUriWrapper wrapper = new QueuedUriWrapper(frontier, qUri, collectionName)
                 .setJobExecutionId(parentUri.getJobExecutionId())
                 .setExecutionId(parentUri.getExecutionId())
                 .setPolitenessRef(parentUri.getPolitenessRef());
@@ -114,9 +115,9 @@ public class QueuedUriWrapper {
         return wrapper;
     }
 
-    public static QueuedUriWrapper getQueuedUriWrapper(String uri, String jobExecutionId, String executionId, ConfigRef politenessId, String collectionName)
+    public static QueuedUriWrapper getQueuedUriWrapper(Frontier frontier, String uri, String jobExecutionId, String executionId, ConfigRef politenessId, String collectionName)
             throws URISyntaxException, DbException {
-        return new QueuedUriWrapper(QueuedUri.newBuilder()
+        return new QueuedUriWrapper(frontier, QueuedUri.newBuilder()
                 .setUri(uri)
                 .setJobExecutionId(jobExecutionId)
                 .setExecutionId(executionId)
@@ -146,14 +147,13 @@ public class QueuedUriWrapper {
         }
 
         if (wrapped.getUnresolved() && wrapped.getCrawlHostGroupId().isEmpty()) {
-            wrapped.setCrawlHostGroupId(ApiTools.createSha1Digest(surt.getDecodedHost()));
+            wrapped.setCrawlHostGroupId("TEMP_CHG_" + ApiTools.createSha1Digest(surt.getDecodedHost()));
         }
         requireNonEmpty(wrapped.getCrawlHostGroupId(), "Empty CrawlHostGroupId");
 
         QueuedUri q = wrapped.build();
-        q = DbService.getInstance().getCrawlQueueAdapter().addToCrawlHostGroup(q);
+        q = frontier.getCrawlQueueManager().addToCrawlHostGroup(q);
         wrapped = q.toBuilder();
-        justAdded = true;
 
         return this;
     }
