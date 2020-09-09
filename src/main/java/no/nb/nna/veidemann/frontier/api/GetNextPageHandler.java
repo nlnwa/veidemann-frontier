@@ -12,7 +12,6 @@ import no.nb.nna.veidemann.commons.db.CrawlableUri;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.frontier.api.Context.RequestContext;
 import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
-import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,13 +24,11 @@ import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.RESCHEDULE_DELAY
 public class GetNextPageHandler implements StreamObserver<PageHarvest> {
     private static final Logger LOG = LoggerFactory.getLogger(GetNextPageHandler.class);
     static ExecutorService threadPool = Executors.newFixedThreadPool(16);
-    final Frontier frontier;
     CrawlExecution exe;
     final RequestContext ctx;
     final ServerCallStreamObserver responseObserver;
 
-    public GetNextPageHandler(RequestContext ctx, Frontier frontier) {
-        this.frontier = frontier;
+    public GetNextPageHandler(RequestContext ctx) {
         this.responseObserver = ctx.getResponseObserver();
         this.ctx = ctx;
     }
@@ -63,18 +60,16 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
                                 PageHarvestSpec pageHarvestSpec = null;
                                 while (pageHarvestSpec == null) {
                                     while (exe == null && !ctx.isCancelled()) {
-                                        CrawlableUri cUri = frontier.getCrawlQueueManager().getNextToFetch(ctx);
+                                        CrawlableUri cUri = ctx.getCrawlQueueManager().getNextToFetch(ctx);
                                         if (ctx.isCancelled()) {
                                             LOG.debug("Context cancelled");
                                             if (cUri != null) {
-                                                frontier.getCrawlQueueManager().releaseCrawlHostGroup(cUri.getCrawlHostGroup(), RESCHEDULE_DELAY);
+                                                ctx.getCrawlQueueManager().releaseCrawlHostGroup(cUri.getCrawlHostGroup(), RESCHEDULE_DELAY);
                                             }
                                             sendError();
                                             return null;
                                         }
-                                        if (cUri != null) {
-                                            exe = new CrawlExecution(cUri.getUri(), cUri.getCrawlHostGroup(), frontier);
-                                        }
+                                        exe = ctx.getCrawlQueueManager().createCrawlExecution(ctx, cUri);
                                     }
                                     if (exe == null) {
                                         sendError();

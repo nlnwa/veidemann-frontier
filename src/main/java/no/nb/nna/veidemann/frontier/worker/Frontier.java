@@ -123,14 +123,6 @@ public class Frontier implements AutoCloseable {
         return status.getCrawlExecutionStatus();
     }
 
-//    public CrawlExecution getNextPageToFetch(Context ctx) throws InterruptedException, DbException {
-//        CrawlableUri cUri = crawlQueueManager.getNextToFetch(ctx);
-//        if (cUri != null) {
-//            return new CrawlExecution(cUri.getUri(), cUri.getCrawlHostGroup(), this);
-//        }
-//        return null;
-//    }
-
     public RobotsServiceClient getRobotsServiceClient() {
         return robotsServiceClient;
     }

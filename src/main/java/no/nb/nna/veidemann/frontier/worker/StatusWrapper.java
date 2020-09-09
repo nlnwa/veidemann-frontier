@@ -25,8 +25,8 @@ import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.CrawlScope;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
-import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
+import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.ProtoUtils;
@@ -85,15 +85,15 @@ public class StatusWrapper {
             ReqlFunction1 updateFunc = (doc) -> {
                 MapObject rMap = r.hashMap("lastChangeTime", r.now());
 
-                if (change.getState() != State.UNDEFINED) {
-                    switch (change.getState()) {
-                        case FETCHING:
-                        case SLEEPING:
-                        case CREATED:
-                            throw new IllegalArgumentException("Only the final states are allowed to be updated");
-                        default:
-                            rMap.with("state", change.getState().name());
-                    }
+                switch (change.getState()) {
+                    case UNDEFINED:
+                        break;
+                    case FETCHING:
+                    case SLEEPING:
+                    case CREATED:
+                        throw new IllegalArgumentException("Only the final states are allowed to be updated");
+                    default:
+                        rMap.with("state", change.getState().name());
                 }
                 if (change.getAddBytesCrawled() != 0) {
                     rMap.with("bytesCrawled", doc.g("bytesCrawled").add(change.getAddBytesCrawled()).default_(change.getAddBytesCrawled()));
@@ -302,8 +302,18 @@ public class StatusWrapper {
         return status.build();
     }
 
+    public StatusWrapper addCurrentUri(QueuedUri uri) {
+        getChange().setAddCurrentUri(uri);
+        return this;
+    }
+
     public StatusWrapper addCurrentUri(QueuedUriWrapper uri) {
         getChange().setAddCurrentUri(uri.getQueuedUri());
+        return this;
+    }
+
+    public StatusWrapper removeCurrentUri(QueuedUri uri) {
+        getChange().setDeleteCurrentUri(uri);
         return this;
     }
 

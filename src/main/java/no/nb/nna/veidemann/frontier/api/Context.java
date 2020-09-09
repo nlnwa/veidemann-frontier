@@ -1,6 +1,8 @@
 package no.nb.nna.veidemann.frontier.api;
 
 import io.grpc.stub.ServerCallStreamObserver;
+import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
+import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,18 +18,20 @@ public class Context {
     private final AtomicBoolean isShutdown;
     private final AtomicInteger amountOfActiveObserversCounter;
     private final AtomicInteger amountOfActivePageFetchesCounter;
+    private final Frontier frontier;
 
     static final Lock lock = new ReentrantLock();
     static final Condition notTerminated = lock.newCondition();
 
-    public Context() {
+    public Context(Frontier frontier) {
         isShutdown = new AtomicBoolean(false);
         amountOfActiveObserversCounter = new AtomicInteger(0);
         amountOfActivePageFetchesCounter = new AtomicInteger(0);
+        this.frontier = frontier;
     }
 
     public RequestContext newRequestContext(ServerCallStreamObserver responseObserver) {
-        return new RequestContext(responseObserver);
+        return new RequestContext(frontier, responseObserver);
     }
 
     public boolean isCancelled() {
@@ -80,12 +84,21 @@ public class Context {
         }
     }
 
+    public Frontier getFrontier() {
+        return frontier;
+    }
+
+    public CrawlQueueManager getCrawlQueueManager() {
+        return frontier.getCrawlQueueManager();
+    }
+
     public class RequestContext extends Context {
         private final ServerCallStreamObserver responseObserver;
         private final AtomicBoolean observerCompleted = new AtomicBoolean(false);
         private final AtomicBoolean pageFetchStarted = new AtomicBoolean(false);
 
-        private RequestContext(ServerCallStreamObserver responseObserver) {
+        private RequestContext(Frontier frontier, ServerCallStreamObserver responseObserver) {
+            super(frontier);
             this.responseObserver = responseObserver;
             amountOfActiveObserversCounter.incrementAndGet();
             LOG.trace("Client connected. Currently active clients: {}", amountOfActiveObserversCounter.get());

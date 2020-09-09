@@ -277,8 +277,6 @@ public class CrawlExecution {
 
             try {
                 frontier.getCrawlQueueManager().releaseCrawlHostGroup(getCrawlHostGroup(), getDelay(TimeUnit.MILLISECONDS));
-            } catch (DbException e) {
-                LOG.error("Error releasing CrawlHostGroup: {}", e.toString(), e);
             } catch (Throwable t) {
                 // An error here indicates unknown problems with DB communication. No idea how to handle that yet.
                 LOG.error("Error releasing CrawlHostGroup: {}", t.toString(), t);

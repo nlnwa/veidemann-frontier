@@ -24,6 +24,7 @@ import no.nb.nna.veidemann.frontier.db.script.ChgReleaseScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript.NextUriScriptResult;
 import no.nb.nna.veidemann.frontier.db.script.RemoveUriScript;
+import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
@@ -145,22 +146,15 @@ public class CrawlQueueManager {
 
             Map newDoc = changes.get(0).get("new_val");
             qUri = ProtoUtils.rethinkToProto(newDoc, QueuedUri.class);
-
             addUriScript.run(qUri);
-            String chgp = createChgPolitenessKey(qUri);
-            String ueIdVal = String.format("%4d:%d:%s",
-                    qUri.getSequence(),
-                    qUri.getEarliestFetchTimeStamp().getSeconds(),
-                    qUri.getId());
-
             return qUri;
-        } catch (Throwable t) {
-            t.printStackTrace();
+        } catch (Exception e) {
+            LOG.warn(e.getMessage(), e);
             return null;
         }
     }
 
-    public CrawlableUri getNextToFetch(Context ctx) throws InterruptedException {
+    public CrawlableUri getNextToFetch(Context ctx) {
         try {
             if (DbService.getInstance().getExecutionsAdapter().getDesiredPausedState()) {
                 Thread.sleep(RESCHEDULE_DELAY);
@@ -205,6 +199,14 @@ public class CrawlQueueManager {
         }
 
         return null;
+    }
+
+    public CrawlExecution createCrawlExecution(Context ctx, CrawlableUri cUri) throws DbException {
+        if (cUri != null) {
+            return new CrawlExecution(cUri.getUri(), cUri.getCrawlHostGroup(), ctx.getFrontier());
+        } else {
+            return null;
+        }
     }
 
     public long deleteQueuedUrisForExecution(String executionId) throws DbException {
@@ -319,7 +321,7 @@ public class CrawlQueueManager {
         long numRemoved = removeUriScript.run(id, chgp, eid, sequence, fetchTime, deleteUri);
     }
 
-    public void removeQUri(QueuedUri qUri, String chg, boolean deleteUri) throws DbException {
+    public void removeQUri(QueuedUri qUri, String chg, boolean deleteUri) {
         String chgp = createChgPolitenessKey(chg, qUri.getPolitenessRef().getId());
         long numRemoved = removeUriScript.run(
                 qUri.getId(),
@@ -359,7 +361,7 @@ public class CrawlQueueManager {
         }
     }
 
-    public void releaseCrawlHostGroup(CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) throws DbException {
+    public void releaseCrawlHostGroup(CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
         LOG.debug("Releasing CrawlHostGroup: " + crawlHostGroup.getId() + ", with queue count: " + crawlHostGroup.getQueuedUriCount());
         crawlHostGroup = crawlHostGroup.toBuilder()
                 .setNextFetchTime(ProtoUtils.odtToTs(ProtoUtils.getNowOdt().plus(nextFetchDelayMs, MILLIS)))

@@ -41,11 +41,10 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(FrontierService.class);
 
-    private final Frontier frontier;
-    final Context ctx = new Context();
+    final Context ctx;
 
     public FrontierService(Frontier frontier) {
-        this.frontier = frontier;
+        ctx = new Context(frontier);
     }
 
     public void shutdown() {
@@ -69,7 +68,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
                 .withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_SERVER)
                 .withTag("uri", request.getSeed().getMeta().getName())
                 .startActive()) {
-            CrawlExecutionStatus reply = frontier.scheduleSeed(request);
+            CrawlExecutionStatus reply = ctx.getFrontier().scheduleSeed(request);
 
             responseObserver.onNext(CrawlExecutionId.newBuilder().setId(reply.getId()).build());
             responseObserver.onCompleted();
@@ -82,7 +81,7 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public StreamObserver<PageHarvest> getNextPage(StreamObserver<PageHarvestSpec> responseObserver) {
-        return new GetNextPageHandler(ctx.newRequestContext((ServerCallStreamObserver) responseObserver), frontier);
+        return new GetNextPageHandler(ctx.newRequestContext((ServerCallStreamObserver) responseObserver));
     }
 
 }

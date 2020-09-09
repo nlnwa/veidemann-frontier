@@ -47,16 +47,18 @@ public class CrawlQueueWorker {
         public void run() {
             try (Jedis jedis = jedisPool.getResource()) {
                 List<String> toBeRemoved = jedis.lrange(CrawlQueueManager.REMOVE_URI_QUEUE_KEY, 0, 4999);
-                // Remove queued uris from DB
-                long deleted = conn.exec("db-deleteQueuedUri",
-                        r.table(Tables.URI_QUEUE.name)
-                                .getAll(toBeRemoved.toArray())
-                                .delete().g("deleted")
-                );
-                for (String uriId : toBeRemoved) {
-                    jedis.lrem(CrawlQueueManager.REMOVE_URI_QUEUE_KEY, 1, uriId);
+                if (!toBeRemoved.isEmpty()) {
+                    // Remove queued uris from DB
+                    long deleted = conn.exec("db-deleteQueuedUri",
+                            r.table(Tables.URI_QUEUE.name)
+                                    .getAll(toBeRemoved.toArray())
+                                    .delete().g("deleted")
+                    );
+                    for (String uriId : toBeRemoved) {
+                        jedis.lrem(CrawlQueueManager.REMOVE_URI_QUEUE_KEY, 1, uriId);
+                    }
+                    LOG.debug("Deleted {} URIs from crawl queue", deleted);
                 }
-                LOG.debug("Deleted {} URIs from crawl queue", deleted);
             } catch (Throwable t) {
                 LOG.error("Error running chg queue manager script", t);
             }
