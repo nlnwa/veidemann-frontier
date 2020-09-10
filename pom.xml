@@ -30,7 +30,7 @@
         <veidemann.commons.version>0.4.7-refactor_frontier</veidemann.commons.version>
         <veidemann.rethinkdbadapter.version>0.4.12-refactor_frontier</veidemann.rethinkdbadapter.version>
 
-        <log4j.version>2.7</log4j.version>
+        <log4j.version>2.13.3</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
 
         <!--Docker container versions for integration tests-->
