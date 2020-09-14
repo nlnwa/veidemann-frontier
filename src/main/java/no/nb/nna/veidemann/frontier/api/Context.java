@@ -88,6 +88,10 @@ public class Context {
         return frontier;
     }
 
+    public int getActivePageFetchCount() {
+        return amountOfActivePageFetchesCounter.get();
+    }
+
     public CrawlQueueManager getCrawlQueueManager() {
         return frontier.getCrawlQueueManager();
     }

@@ -15,6 +15,7 @@
  */
 package no.nb.nna.veidemann.frontier.api;
 
+import com.google.protobuf.Empty;
 import io.grpc.Status;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
@@ -22,8 +23,10 @@ import io.opentracing.ActiveSpan;
 import io.opentracing.contrib.OpenTracingContextKey;
 import io.opentracing.tag.Tags;
 import io.opentracing.util.GlobalTracer;
+import no.nb.nna.veidemann.api.frontier.v1.CountResponse;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionId;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
@@ -84,4 +87,39 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
         return new GetNextPageHandler(ctx.newRequestContext((ServerCallStreamObserver) responseObserver));
     }
 
+    @Override
+    public void busyCrawlHostGroupCount(Empty request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().busyCrawlHostGroupCount())
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void queueCountTotal(Empty request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().queueCountTotal())
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void queueCountForCrawlExecution(CrawlExecutionId request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().countByCrawlExecution(request.getId()))
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void queueCountForCrawlHostGroup(CrawlHostGroup request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().countByCrawlHostGroup(request))
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
 }

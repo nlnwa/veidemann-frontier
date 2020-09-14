@@ -307,13 +307,19 @@ public class CrawlQueueManager {
         }
     }
 
-    public long QueueCountTotal() {
+    public long queueCountTotal() {
         try (Jedis jedis = jedisPool.getResource()) {
             String c = jedis.get(QUEUE_COUNT_TOTAL_KEY);
             if (c == null) {
                 return 0;
             }
             return Longs.tryParse(c);
+        }
+    }
+
+    public long busyCrawlHostGroupCount() {
+        try (Jedis jedis = jedisPool.getResource()) {
+            return jedis.zcard(CHG_BUSY_KEY);
         }
     }
 
