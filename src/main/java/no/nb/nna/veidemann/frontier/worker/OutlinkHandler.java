@@ -45,7 +45,15 @@ public class OutlinkHandler {
         this.crawlExecution = crawlExecution;
     }
 
-    public void processOutlink(Frontier frontier, QueuedUri outlink) throws DbException {
+    /**
+     * Check if outlink is in scope for crawling and eventually add it to queue.
+     * @param frontier
+     * @param outlink the outlink to evaluate
+     * @return true if outlink was added to queue
+     * @throws DbException
+     */
+    public boolean processOutlink(Frontier frontier, QueuedUri outlink) throws DbException {
+        boolean wasQueued = false;
         try {
             QueuedUriWrapper outUri = QueuedUriWrapper.getQueuedUriWrapper(frontier, crawlExecution.qUri, outlink,
                     crawlExecution.collectionConfig.getMeta().getName());
@@ -59,11 +67,13 @@ public class OutlinkHandler {
                         LOG.debug("Found new URI: {}, queueing.", outUri.getSurt());
                         outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
                         outUri.addUriToQueue();
+                        wasQueued = true;
                         break;
                     case RETRY:
                         LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getSurt());
                         outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
                         outUri.addUriToQueue();
+                        wasQueued = true;
                         break;
                     case FAIL:
                     case DENIED:
@@ -74,6 +84,7 @@ public class OutlinkHandler {
             crawlExecution.status.incrementDocumentsFailed();
             LOG.info("Illegal URI {}", ex);
         }
+        return wasQueued;
     }
 
     private boolean shouldInclude(QueuedUriWrapper outlink) throws DbException {

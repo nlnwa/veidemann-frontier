@@ -51,13 +51,6 @@ public class FrontierService {
         config.checkValid(ConfigFactory.defaultReference());
         SETTINGS = ConfigBeanFactory.create(config, Settings.class);
 
-        if (!SETTINGS.getLockRedisHost().isEmpty()) {
-            System.setProperty("lock.redis.host", SETTINGS.getLockRedisHost());
-        }
-        if (!SETTINGS.getLockRedisPort().isEmpty()) {
-            System.setProperty("lock.redis.port", SETTINGS.getLockRedisPort());
-        }
-
         TracerFactory.init("Frontier");
     }
 
@@ -86,7 +79,7 @@ public class FrontierService {
         jedisPoolConfig.setMaxTotal(16);
         try (DbService db = DbService.configure(SETTINGS);
 
-             JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getLockRedisHost() + ":" + SETTINGS.getLockRedisPort()));
+             JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getRedisHost() + ":" + SETTINGS.getRedisPort()));
 
              RobotsServiceClient robotsServiceClient = new RobotsServiceClient(
                      SETTINGS.getRobotsEvaluatorHost(), SETTINGS.getRobotsEvaluatorPort());

@@ -8,7 +8,14 @@ import redis.clients.jedis.JedisPool;
 
 import java.util.List;
 
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.*;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_PREFIX;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_WAIT_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.EIDC;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.QUEUE_COUNT_TOTAL_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.UCHG;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.UEID;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.createChgPolitenessKey;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.serializeCrawlHostGroup;
 
 public class AddUriScript extends RedisJob<Void> {
     final LuaScript addUriScript;
@@ -61,11 +68,10 @@ public class AddUriScript extends RedisJob<Void> {
 
             // If new chg was created, queue it.
             if (changes > 0) {
-                if (readyTime > System.currentTimeMillis()) {
-                    jedis.zadd(CHG_WAIT_KEY, readyTime, chgp);
-                } else {
-                    jedis.rpush(CHG_READY_KEY, chgp);
+                if (readyTime < System.currentTimeMillis()) {
+                    readyTime = System.currentTimeMillis() + 10;
                 }
+                jedis.zadd(CHG_WAIT_KEY, readyTime, chgp);
             }
             return null;
         });

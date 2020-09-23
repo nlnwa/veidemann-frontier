@@ -481,11 +481,10 @@
                                             <!--suppress UnresolvedMavenProperty -->
                                             <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
                                             <!--suppress UnresolvedMavenProperty -->
-                                            <LOCK_REDIS_HOST>redis</LOCK_REDIS_HOST>
+                                            <REDIS_HOST>redis</REDIS_HOST>
                                             <!--suppress UnresolvedMavenProperty -->
-                                            <LOCK_REDIS_PORT>6379</LOCK_REDIS_PORT>
+                                            <REDIS_PORT>6379</REDIS_PORT>
 <!--                                            <LOCK_REDIS_PORT>${redis.port}</LOCK_REDIS_PORT>-->
-                                            <!--                                            <JAVA_TOOL_OPTIONS>-Dlock.redis.port=6379</JAVA_TOOL_OPTIONS>-->
                                         </env>
                                         <log>
                                             <enabled>true</enabled>

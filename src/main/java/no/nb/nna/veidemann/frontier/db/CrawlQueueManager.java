@@ -72,6 +72,8 @@ public class CrawlQueueManager {
 
     private final CrawlQueueWorker chgManager;
 
+    static final Semaphore nextChgLock = new Semaphore(3);
+
     public CrawlQueueManager(RethinkDbConnection conn, JedisPool jedisPool) {
         this.conn = conn;
         this.jedisPool = jedisPool;
@@ -243,6 +245,13 @@ public class CrawlQueueManager {
         return URI_ALREADY_INCLUDED_PREFIX + jobId;
     }
 
+    /**
+     * Atomically checks if a uri is already included in queue for a JobExecution and adds the uri
+     * to the datastructure such that the next call to this function with the same QueuedUri will always return false.
+     *
+     * @param qu the uri to check
+     * @return true if the uri is not seen for the JobExecution
+     */
     public boolean uriNotIncludedInQueue(QueuedUri qu) {
         String jobExecutionId = qu.getJobExecutionId();
         String uriHash = uriHash(qu.getSurt());
@@ -251,6 +260,11 @@ public class CrawlQueueManager {
         }
     }
 
+    /**
+     * Resets the already included datastructure for a JobExecution.
+     *
+     * @param jobExecutionId
+     */
     public void removeAlreadyIncludedQueue(String jobExecutionId) {
         try (Jedis jedis = jedisPool.getResource()) {
             jedis.del(key(jobExecutionId));
@@ -338,8 +352,6 @@ public class CrawlQueueManager {
                 deleteUri);
     }
 
-    static final Semaphore nextChgLock = new Semaphore(3);
-
     private CrawlHostGroup getNextReadyCrawlHostGroup(Context ctx) {
         try {
             while (!nextChgLock.tryAcquire(300, TimeUnit.MILLISECONDS)) {
@@ -372,10 +384,6 @@ public class CrawlQueueManager {
         crawlHostGroup = crawlHostGroup.toBuilder()
                 .setNextFetchTime(ProtoUtils.odtToTs(ProtoUtils.getNowOdt().plus(nextFetchDelayMs, MILLIS)))
                 .build();
-        releaseCrawlHostGroup(crawlHostGroup);
-    }
-
-    public void releaseCrawlHostGroup(CrawlHostGroup crawlHostGroup) {
         releaseChgScript.run(crawlHostGroup);
     }
 }

@@ -63,6 +63,11 @@ public class CrawlExecution {
 
     private final OutlinkHandler outlinkHandler;
 
+    /**
+     * If true, this execution has added something to the queue. If so, No need to check if execution is finished
+     */
+    private boolean uriAdded;
+
     private long delayMs = 0L;
 
     private long fetchStart;
@@ -127,19 +132,17 @@ public class CrawlExecution {
         try {
             if (isManualAbort() || LimitsCheck.isLimitReached(frontier, limits, status, qUri)) {
                 delayMs = -1L;
+                status.removeCurrentUri(qUri);
                 if (qUri.hasError() && qUri.getDiscoveryPath().isEmpty()) {
                     if (qUri.getError().getCode() == ExtraStatusCodes.PRECLUDED_BY_ROBOTS.getCode()) {
                         // Seed precluded by robots.txt; mark crawl as finished
-                        status.removeCurrentUri(qUri);
                         endCrawl(CrawlExecutionStatus.State.FINISHED, qUri.getError());
                     } else {
                         // Seed failed; mark crawl as failed
-                        status.removeCurrentUri(qUri);
                         endCrawl(CrawlExecutionStatus.State.FAILED, qUri.getError());
                     }
                 } else if (frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
                     // No URIs in queue; mark crawl as finished
-                    status.removeCurrentUri(qUri);
                     endCrawl(CrawlExecutionStatus.State.FINISHED);
                 }
                 return null;
@@ -152,11 +155,13 @@ public class CrawlExecution {
                     case DENIED:
                     case FAIL:
                         delayMs = -1L;
+                        frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
                         status.removeCurrentUri(qUri).saveStatus();
                         return null;
                     case RETRY:
                         qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
                         frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
+                        uriAdded = true;
                         qUri.addUriToQueue();
                         return null;
                     case OK:
@@ -255,7 +260,7 @@ public class CrawlExecution {
                         // Seed failed; mark crawl as failed
                         endCrawl(CrawlExecutionStatus.State.FAILED, qUri.getError());
                     }
-                } else if (frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
+                } else if (!uriAdded && frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
                     endCrawl(CrawlExecutionStatus.State.FINISHED);
                 }
 
@@ -286,7 +291,9 @@ public class CrawlExecution {
     }
 
     public void queueOutlink(QueuedUri outlink) throws DbException {
-        outlinkHandler.processOutlink(frontier, outlink);
+        if (outlinkHandler.processOutlink(frontier, outlink)) {
+            uriAdded = true;
+        }
     }
 
     private void calculateDelay() {
@@ -333,6 +340,7 @@ public class CrawlExecution {
                 LOG.info("Failed fetching ({}) at attempt #{}, retrying in {} seconds", qUri, qUri.getRetries(), politenessConfig.getPolitenessConfig().getRetryDelaySeconds());
                 qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
                 frontier.getCrawlQueueManager().removeQUri(oldUri, crawlHostGroup.getId(), false);
+                uriAdded = true;
                 qUri.addUriToQueue();
             }
         } else {
