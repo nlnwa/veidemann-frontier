@@ -17,6 +17,7 @@ package no.nb.nna.veidemann.frontier.api;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.services.HealthStatusManager;
 import io.opentracing.contrib.ServerTracingInterceptor;
 import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
@@ -27,6 +28,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,8 +40,10 @@ public class FrontierApiServer {
 
     private final Server server;
     private final ExecutorService threadPool;
+    private final ScheduledExecutorService healthCheckerExecutorService;
     private long shutdownTimeoutMillis = 60 * 1000;
     final FrontierService frontierService;
+    final HealthStatusManager health;
 
     public FrontierApiServer(int port, int shutdownTimeoutSeconds, Frontier frontier) {
         this(ServerBuilder.forPort(port), frontier);
@@ -52,11 +56,18 @@ public class FrontierApiServer {
                         ServerTracingInterceptor.ServerRequestAttribute.METHOD_TYPE)
                 .build();
 
+        healthCheckerExecutorService = Executors.newScheduledThreadPool(1);
+        health = new HealthStatusManager();
+        healthCheckerExecutorService.scheduleAtFixedRate(new HealthChecker(frontier, health), 0, 1, TimeUnit.SECONDS);
+
         threadPool = Executors.newFixedThreadPool(128);
         serverBuilder.executor(threadPool);
 
         frontierService = new FrontierService(frontier);
-        server = serverBuilder.addService(tracingInterceptor.intercept(frontierService)).build();
+        server = serverBuilder
+                .addService(tracingInterceptor.intercept(frontierService))
+                .addService(health.getHealthService())
+                .build();
     }
 
     public FrontierApiServer start() {
@@ -73,6 +84,14 @@ public class FrontierApiServer {
     }
 
     public void shutdown() {
+        healthCheckerExecutorService.shutdownNow();
+        try {
+            healthCheckerExecutorService.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            System.err.println("Interrupted while waiting for health checker shutdown");
+        }
+        health.enterTerminalState();
+
         long startTime = System.currentTimeMillis();
         server.shutdown();
         frontierService.shutdown();
@@ -104,6 +123,21 @@ public class FrontierApiServer {
                 shutdown();
                 throw new RuntimeException(ex);
             }
+        }
+    }
+
+    class HealthChecker implements Runnable {
+        private final Frontier frontier;
+        private final HealthStatusManager health;
+
+        public HealthChecker(Frontier frontier, HealthStatusManager health) {
+            this.frontier = frontier;
+            this.health = health;
+        }
+
+        @Override
+        public void run() {
+            health.setStatus("", frontier.checkHealth());
         }
     }
 }

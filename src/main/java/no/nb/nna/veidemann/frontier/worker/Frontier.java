@@ -21,6 +21,7 @@ import com.google.common.cache.LoadingCache;
 import com.rethinkdb.RethinkDB;
 import com.rethinkdb.gen.ast.Insert;
 import com.rethinkdb.model.MapObject;
+import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.CrawlScope;
@@ -41,6 +42,7 @@ import no.nb.nna.veidemann.db.initializer.RethinkDbInitializer;
 import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.net.URISyntaxException;
@@ -66,10 +68,12 @@ public class Frontier implements AutoCloseable {
 
     private final LoadingCache<ConfigRef, ConfigObject> configCache;
 
+    private final JedisPool jedisPool;
     final RethinkDbConnection conn;
     static final RethinkDB r = RethinkDB.r;
 
     public Frontier(JedisPool jedisPool, RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient) {
+        this.jedisPool = jedisPool;
         this.robotsServiceClient = robotsServiceClient;
         this.dnsServiceClient = dnsServiceClient;
         this.scopeChecker = new ScopeCheck(outOfScopeHandlerClient);
@@ -275,4 +279,19 @@ public class Frontier implements AutoCloseable {
     public void close() {
     }
 
+    /**
+     * Check the health of the Frontier.
+     *
+     * @return the serving status of the Frontier
+     */
+    public ServingStatus checkHealth() {
+        try (Jedis jedis = jedisPool.getResource()) {
+            if (!"PONG".equals(jedis.ping())) {
+                return ServingStatus.NOT_SERVING;
+            }
+        } catch (Throwable t) {
+            return ServingStatus.NOT_SERVING;
+        }
+        return ServingStatus.SERVING;
+    }
 }

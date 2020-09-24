@@ -27,8 +27,8 @@
         <docker.tag>${project.version}</docker.tag>
 
         <veidemann.api.version>1.0.0-beta18</veidemann.api.version>
-        <veidemann.commons.version>0.4.7-refactor_frontier</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.4.12-refactor_frontier</veidemann.rethinkdbadapter.version>
+        <veidemann.commons.version>0.4.7</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.4.12</veidemann.rethinkdbadapter.version>
 
         <log4j.version>2.13.3</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
@@ -262,7 +262,17 @@
                                 <from>src/main/resources</from>
                                 <into>/app</into>
                             </path>
+                            <path>
+                                <from>src/main/jib</from>
+                                <into>/</into>
+                            </path>
                         </paths>
+                        <permissions>
+                            <permission>
+                                <file>/grpc_health_probe</file>
+                                <mode>755</mode>
+                            </permission>
+                        </permissions>
                     </extraDirectories>
                 </configuration>
             </plugin>
