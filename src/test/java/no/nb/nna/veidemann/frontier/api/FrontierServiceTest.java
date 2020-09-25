@@ -99,6 +99,7 @@ public class FrontierServiceTest {
             inProcessServer.blockUntilShutdown();
 
             verify(frontierMock, times(14)).getCrawlQueueManager();
+            verify(frontierMock, atLeastOnce()).checkHealth();
             verify(crawlExecutionMock, times(14)).getUri();
             verify(crawlExecutionMock, times(7)).preFetch();
             verify(crawlExecutionMock, times(7)).postFetchFinally();
