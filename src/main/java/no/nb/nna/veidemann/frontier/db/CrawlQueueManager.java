@@ -212,19 +212,16 @@ public class CrawlQueueManager {
     }
 
     public long deleteQueuedUrisForExecution(String executionId) throws DbException {
-        // TODO: Remove debug statements when this is tested
         long deleted = 0;
         try (Jedis jedis = jedisPool.getResource()) {
             ScanResult<String> queues = jedis.scan("0", new ScanParams().match(UEID + "*:" + executionId));
             while (!queues.isCompleteIteration()) {
                 for (String queue : queues.getResult()) {
-                    System.out.println("QQ1: " + queue);
                     String chgp = queue.split(":")[1];
                     ScanResult<Tuple> uris = new ScanResult<Tuple>("0", null);
                     do {
                         uris = jedis.zscan(queue, uris.getCursor());
                         for (Tuple uri : uris.getResult()) {
-                            System.out.println("QQ2: " + uri.getElement());
                             String[] uriParts = uri.getElement().split(":", 3);
                             String uriId = uriParts[2];
                             long sequence = Longs.tryParse(uriParts[0].trim());

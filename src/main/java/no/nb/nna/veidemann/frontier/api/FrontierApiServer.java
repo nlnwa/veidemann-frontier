@@ -101,8 +101,8 @@ public class FrontierApiServer {
             System.err.println("Interrupted while waiting for server shutdown");
         }
         try {
-            boolean gracefullStop = frontierService.awaitTermination(shutdownTimeoutMillis - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
-            if (gracefullStop) {
+            boolean gracefulStop = frontierService.awaitTermination(shutdownTimeoutMillis - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
+            if (gracefulStop) {
                 System.err.println("*** server shut down gracefully");
             } else {
                 System.err.println("*** server shutdown timed out");
