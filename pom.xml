@@ -26,10 +26,11 @@
         <maven.compiler.target>11</maven.compiler.target>
         <docker.tag>${project.version}</docker.tag>
 
-        <veidemann.commons.version>0.4.3</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.4.5</veidemann.rethinkdbadapter.version>
+        <veidemann.api.version>1.0.0-beta18</veidemann.api.version>
+        <veidemann.commons.version>0.4.7</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.4.12</veidemann.rethinkdbadapter.version>
 
-        <log4j.version>2.7</log4j.version>
+        <log4j.version>2.13.3</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
 
         <!--Docker container versions for integration tests-->
@@ -70,14 +71,34 @@
 
         <dependency>
             <groupId>com.github.nlnwa</groupId>
-            <artifactId>veidemann-commons</artifactId>
-            <version>${veidemann.commons.version}</version>
+            <artifactId>veidemann-api</artifactId>
+            <version>${veidemann.api.version}</version>
         </dependency>
 
         <dependency>
             <groupId>com.github.nlnwa</groupId>
-            <artifactId>webarchive-commons</artifactId>
-            <version>fixIpv4Parser-SNAPSHOT</version>
+            <artifactId>veidemann-commons</artifactId>
+            <version>${veidemann.commons.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.github.nlnwa</groupId>
+                    <artifactId>webarchive-commons</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>com.github.nlnwa.webarchive-commons</groupId>
+            <artifactId>webarchive-commons-uri</artifactId>
+            <version>fixIpv4Parser-commons-web-1.0.0-g09014ab-247</version>
+        </dependency>
+
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>3.3.0</version>
+            <type>jar</type>
+            <scope>compile</scope>
         </dependency>
 
         <dependency>
@@ -178,14 +199,9 @@
                     <version>0.29.0</version>
                 </plugin>
                 <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-jar-plugin</artifactId>
-                    <version>3.0.2</version>
-                </plugin>
-                <plugin>
                     <groupId>com.google.cloud.tools</groupId>
                     <artifactId>jib-maven-plugin</artifactId>
-                    <version>2.1.0</version>
+                    <version>2.5.2</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -207,18 +223,6 @@
                 <configuration>
                     <forkCount>1C</forkCount>
                     <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
-            <!-- Make version number available for application -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
-                        </manifest>
-                    </archive>
                 </configuration>
             </plugin>
             <plugin>
@@ -244,12 +248,32 @@
                             <volume>/workdir</volume>
                         </volumes>
                         <environment>
+                            <!-- Make version number available for application as environment variable VERSION-->
+                            <VERSION>${project.version}</VERSION>
                             <WORK_DIR>/workdir</WORK_DIR>
                         </environment>
                         <jvmFlags>
                             <jvmFlag>-Dfile.encoding=UTF-8</jvmFlag>
                         </jvmFlags>
                     </container>
+                    <extraDirectories>
+                        <paths>
+                            <path>
+                                <from>src/main/resources</from>
+                                <into>/app</into>
+                            </path>
+                            <path>
+                                <from>src/main/jib</from>
+                                <into>/</into>
+                            </path>
+                        </paths>
+                        <permissions>
+                            <permission>
+                                <file>/grpc_health_probe</file>
+                                <mode>755</mode>
+                            </permission>
+                        </permissions>
+                    </extraDirectories>
                 </configuration>
             </plugin>
         </plugins>
@@ -265,7 +289,7 @@
                         <artifactId>jib-maven-plugin</artifactId>
                         <executions>
                             <execution>
-                                <phase>package</phase>
+                                <phase>compile</phase>
                                 <goals>
                                     <goal>dockerBuild</goal>
                                 </goals>
@@ -285,7 +309,7 @@
                         <artifactId>jib-maven-plugin</artifactId>
                         <executions>
                             <execution>
-                                <phase>package</phase>
+                                <phase>compile</phase>
                                 <goals>
                                     <goal>build</goal>
                                 </goals>
@@ -425,6 +449,9 @@
                                             <name>frontier-test-net</name>
                                             <alias>redis</alias>
                                         </network>
+                                        <ports>
+                                            <port>+redis.host:redis.port:6379</port>
+                                        </ports>
                                         <log>
                                             <enabled>true</enabled>
                                         </log>
@@ -463,9 +490,11 @@
                                             <OOS_HANDLER_HOST>${local.ip}</OOS_HANDLER_HOST>
                                             <!--suppress UnresolvedMavenProperty -->
                                             <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
-                                            <LOCK_REDIS_HOST>redis</LOCK_REDIS_HOST>
-                                            <LOCK_REDIS_PORT>6379</LOCK_REDIS_PORT>
-<!--                                            <JAVA_TOOL_OPTIONS>-Dlock.redis.port=6379</JAVA_TOOL_OPTIONS>-->
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <REDIS_HOST>redis</REDIS_HOST>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <REDIS_PORT>6379</REDIS_PORT>
+<!--                                            <LOCK_REDIS_PORT>${redis.port}</LOCK_REDIS_PORT>-->
                                         </env>
                                         <log>
                                             <enabled>true</enabled>
@@ -496,6 +525,10 @@
                                 <db.host>${db.host}</db.host>
                                 <!--suppress UnresolvedMavenProperty -->
                                 <db.port>${db.port}</db.port>
+                                <!--suppress UnresolvedMavenProperty -->
+                                <redis.host>${redis.host}</redis.host>
+                                <!--suppress UnresolvedMavenProperty -->
+                                <redis.port>${redis.port}</redis.port>
                                 <!--suppress UnresolvedMavenProperty -->
                                 <frontier.host>${frontier.host}</frontier.host>
                                 <!--suppress UnresolvedMavenProperty -->

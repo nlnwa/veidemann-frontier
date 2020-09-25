@@ -15,25 +15,27 @@
  */
 package no.nb.nna.veidemann.frontier.api;
 
+import com.google.protobuf.Empty;
 import io.grpc.Status;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import io.opentracing.ActiveSpan;
 import io.opentracing.contrib.OpenTracingContextKey;
 import io.opentracing.tag.Tags;
 import io.opentracing.util.GlobalTracer;
+import no.nb.nna.veidemann.api.frontier.v1.CountResponse;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionId;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
-import no.nb.nna.veidemann.commons.db.DbException;
-import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
 /**
  *
@@ -42,13 +44,23 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(FrontierService.class);
 
-    private final Frontier frontier;
+    final Context ctx;
 
     public FrontierService(Frontier frontier) {
-        this.frontier = frontier;
+        ctx = new Context(frontier);
     }
 
-    AtomicInteger activeRequests = new AtomicInteger();
+    public void shutdown() {
+        ctx.shutdown();
+    }
+
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+        return ctx.awaitTermination(timeout, unit);
+    }
+
+    public void awaitTermination() throws InterruptedException {
+        ctx.awaitTermination();
+    }
 
     @Override
     public void crawlSeed(CrawlSeedRequest request, StreamObserver<CrawlExecutionId> responseObserver) {
@@ -59,12 +71,12 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
                 .withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_SERVER)
                 .withTag("uri", request.getSeed().getMeta().getName())
                 .startActive()) {
-            CrawlExecutionStatus reply = frontier.scheduleSeed(request);
+            CrawlExecutionStatus reply = ctx.getFrontier().scheduleSeed(request);
 
             responseObserver.onNext(CrawlExecutionId.newBuilder().setId(reply.getId()).build());
             responseObserver.onCompleted();
         } catch (Exception e) {
-            LOG.error(e.getMessage(), e);
+            LOG.error("Crawl seed error: " + e.getMessage(), e);
             Status status = Status.UNKNOWN.withDescription(e.toString());
             responseObserver.onError(status.asException());
         }
@@ -72,92 +84,42 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public StreamObserver<PageHarvest> getNextPage(StreamObserver<PageHarvestSpec> responseObserver) {
-        frontier.setCurrentClientCount(activeRequests.incrementAndGet());
-        LOG.trace("Client connected. Currently active clients: {}", activeRequests.get());
-        return new StreamObserver<PageHarvest>() {
-            CrawlExecution exe;
+        return new GetNextPageHandler(ctx.newRequestContext((ServerCallStreamObserver) responseObserver));
+    }
 
-            @Override
-            public void onNext(PageHarvest value) {
-                switch (value.getMsgCase()) {
-                    case REQUESTNEXTPAGE:
-                        LOG.trace("Got request for new URI");
-                        try {
-                            PageHarvestSpec pageHarvestSpec = null;
-                            while (pageHarvestSpec == null) {
-                                exe = frontier.getNextPageToFetch();
-                                LOG.trace("Found candidate URI {}", exe.getUri());
-                                pageHarvestSpec = exe.preFetch();
-                                if (pageHarvestSpec == null) {
-                                    LOG.trace("Prefetch denied fetch of {}", exe.getUri());
-                                    exe.postFetchFinally();
-                                }
-                            }
-                            responseObserver.onNext(pageHarvestSpec);
-                        } catch (Exception e) {
-                            LOG.error("Error preparing new fetch: {}", e.toString(), e);
-                            Status status = Status.UNKNOWN.withDescription(e.toString());
-                            responseObserver.onError(status.asException());
-                            exe.postFetchFinally();
-                        }
-                        break;
-                    case METRICS:
-                        try {
-                            exe.postFetchSuccess(value.getMetrics());
-                        } catch (Exception e) {
-                            LOG.warn("Failed to execute postFetchSuccess: {}", e.toString(), e);
-                        }
-                        break;
-                    case OUTLINK:
-                        try {
-                            exe.queueOutlink(value.getOutlink());
-                        } catch (Exception e) {
-                            LOG.warn("Could not queue outlink '{}'", value.getOutlink().getUri(), e);
-                        }
-                        break;
-                    case ERROR:
-                        try {
-                            exe.postFetchFailure(value.getError());
-                        } catch (Exception e) {
-                            LOG.warn("Failed to execute postFetchFailure: {}", e.toString(), e);
-                        }
-                        break;
-                }
-            }
+    @Override
+    public void busyCrawlHostGroupCount(Empty request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().busyCrawlHostGroupCount())
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
 
-            @Override
-            public void onError(Throwable t) {
-                activeRequests.decrementAndGet();
-                try {
-                    if (exe != null) {
-                        exe.postFetchFailure(t);
-                    } else {
-                        LOG.error("Error before any action", t);
-                    }
-                } catch (DbException e) {
-                    LOG.error("Could not handle failure", e);
-                }
-                try {
-                    exe.postFetchFinally();
-                } catch (Exception e) {
-                    LOG.error("Failed to execute postFetchFinally after error: {}", e.toString(), e);
-                }
-            }
+    @Override
+    public void queueCountTotal(Empty request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().queueCountTotal())
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
 
-            @Override
-            public void onCompleted() {
-                activeRequests.decrementAndGet();
-                try {
-                    responseObserver.onCompleted();
-                } catch (Exception e) {
-                    LOG.error("Failed to execute onCompleted: {}", e.toString(), e);
-                }
-                try {
-                    exe.postFetchFinally();
-                } catch (Exception e) {
-                    LOG.error("Failed to execute postFetchFinally: {}", e.toString(), e);
-                }
-            }
-        };
+    @Override
+    public void queueCountForCrawlExecution(CrawlExecutionId request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().countByCrawlExecution(request.getId()))
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void queueCountForCrawlHostGroup(CrawlHostGroup request, StreamObserver<CountResponse> responseObserver) {
+        CountResponse response = CountResponse.newBuilder()
+                .setCount(ctx.getCrawlQueueManager().countByCrawlHostGroup(request))
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
     }
 }

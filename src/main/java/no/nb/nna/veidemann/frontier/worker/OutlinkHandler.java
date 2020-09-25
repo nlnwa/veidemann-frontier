@@ -16,21 +16,14 @@
 
 package no.nb.nna.veidemann.frontier.worker;
 
-import com.google.common.collect.Multimap;
-import com.google.common.collect.MultimapBuilder;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbException;
-import no.nb.nna.veidemann.commons.db.DbService;
-import no.nb.nna.veidemann.commons.db.DistributedLock;
-import no.nb.nna.veidemann.commons.db.DistributedLock.Key;
 import no.nb.nna.veidemann.frontier.worker.Preconditions.PreconditionState;
 import org.netpreserve.commons.uri.UriFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
-import java.util.Collection;
-import java.util.Set;
 
 public class OutlinkHandler {
 
@@ -48,67 +41,23 @@ public class OutlinkHandler {
 
     private final CrawlExecution crawlExecution;
 
-    Multimap<String, QueuedUriWrapper> queuedUriMap = MultimapBuilder.hashKeys().hashSetValues().build();
-
     public OutlinkHandler(CrawlExecution crawlExecution) {
         this.crawlExecution = crawlExecution;
     }
 
-    public void queueOutlink(QueuedUri outlink) throws DbException {
+    /**
+     * Check if outlink is in scope for crawling and eventually add it to queue.
+     * @param frontier
+     * @param outlink the outlink to evaluate
+     * @return true if outlink was added to queue
+     * @throws DbException
+     */
+    public boolean processOutlink(Frontier frontier, QueuedUri outlink) throws DbException {
+        boolean wasQueued = false;
         try {
-            QueuedUriWrapper outUri = QueuedUriWrapper.getQueuedUriWrapper(crawlExecution.qUri, outlink,
+            QueuedUriWrapper outUri = QueuedUriWrapper.getQueuedUriWrapper(frontier, crawlExecution.qUri, outlink,
                     crawlExecution.collectionConfig.getMeta().getName());
-            if (shouldInclude(outUri)) {
-                queuedUriMap.put(outUri.getParsedSurt().toCustomString(SURT_HOST_FORMAT), outUri);
-            }
-        } catch (URISyntaxException ex) {
-            crawlExecution.status.incrementDocumentsFailed();
-            LOG.info("Illegal URI {}", ex);
-        }
-    }
-
-    public void finish() throws DbException {
-        processOutlinks();
-    }
-
-    private void processOutlinks() throws DbException {
-        while (!queuedUriMap.isEmpty()) {
-            Set<String> keySet = queuedUriMap.keySet();
-            if (keySet.size() == 1) {
-                String key = keySet.iterator().next();
-                DistributedLock lock = DbService.getInstance()
-                        .createDistributedLock(new Key("quri", key), 300);
-                lock.lock();
-                try {
-                    processOutlinks(queuedUriMap.get(key));
-                    queuedUriMap.removeAll(key);
-                } finally {
-                    lock.unlock();
-                }
-
-            } else {
-                for (String key : keySet.toArray(new String[0])) {
-                    Collection<QueuedUriWrapper> v = queuedUriMap.get(key);
-                    DistributedLock lock = DbService.getInstance()
-                            .createDistributedLock(new Key("quri", key), 300);
-                    if (lock.tryLock()) {
-                        try {
-                            processOutlinks(v);
-                            queuedUriMap.removeAll(key);
-                        } finally {
-                            lock.unlock();
-                        }
-                    } else {
-                        LOG.debug("Waiting for lock on " + key);
-                    }
-                }
-            }
-        }
-    }
-
-    private void processOutlinks(Collection<QueuedUriWrapper> outlinks) throws DbException {
-        for (QueuedUriWrapper outUri : outlinks) {
-            if (uriNotIncludedInQueue(outUri)) {
+            if (shouldInclude(outUri) && uriNotIncludedInQueue(outUri)) {
                 outUri.setSequence(outUri.getDiscoveryPath().length());
 
                 PreconditionState check = Preconditions.checkPreconditions(crawlExecution.frontier,
@@ -118,18 +67,24 @@ public class OutlinkHandler {
                         LOG.debug("Found new URI: {}, queueing.", outUri.getSurt());
                         outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
                         outUri.addUriToQueue();
+                        wasQueued = true;
                         break;
                     case RETRY:
                         LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getSurt());
                         outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
                         outUri.addUriToQueue();
+                        wasQueued = true;
                         break;
                     case FAIL:
                     case DENIED:
                         break;
                 }
             }
+        } catch (URISyntaxException ex) {
+            crawlExecution.status.incrementDocumentsFailed();
+            LOG.info("Illegal URI {}", ex);
         }
+        return wasQueued;
     }
 
     private boolean shouldInclude(QueuedUriWrapper outlink) throws DbException {
@@ -145,8 +100,8 @@ public class OutlinkHandler {
     }
 
     private boolean uriNotIncludedInQueue(QueuedUriWrapper outlink) throws DbException {
-        if (DbService.getInstance().getCrawlQueueAdapter()
-                .uriNotIncludedInQueue(outlink.getQueuedUri(), crawlExecution.status.getStartTime())) {
+        if (outlink.frontier.getCrawlQueueManager()
+                .uriNotIncludedInQueue(outlink.getQueuedUri())) {
             return true;
         }
 

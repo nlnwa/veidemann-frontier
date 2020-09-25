@@ -17,6 +17,7 @@ package no.nb.nna.veidemann.frontier.api;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.services.HealthStatusManager;
 import io.opentracing.contrib.ServerTracingInterceptor;
 import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
@@ -27,18 +28,22 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
  *
  */
-public class FrontierApiServer implements AutoCloseable {
+public class FrontierApiServer {
 
     private static final Logger LOG = LoggerFactory.getLogger(FrontierApiServer.class);
 
     private final Server server;
     private final ExecutorService threadPool;
+    private final ScheduledExecutorService healthCheckerExecutorService;
     private long shutdownTimeoutMillis = 60 * 1000;
+    final FrontierService frontierService;
+    final HealthStatusManager health;
 
     public FrontierApiServer(int port, int shutdownTimeoutSeconds, Frontier frontier) {
         this(ServerBuilder.forPort(port), frontier);
@@ -51,11 +56,18 @@ public class FrontierApiServer implements AutoCloseable {
                         ServerTracingInterceptor.ServerRequestAttribute.METHOD_TYPE)
                 .build();
 
-        threadPool = Executors.newCachedThreadPool();
+        healthCheckerExecutorService = Executors.newScheduledThreadPool(1);
+        health = new HealthStatusManager();
+        healthCheckerExecutorService.scheduleAtFixedRate(new HealthChecker(frontier, health), 0, 1, TimeUnit.SECONDS);
+
+        threadPool = Executors.newFixedThreadPool(128);
         serverBuilder.executor(threadPool);
 
-        FrontierService frontierService = new FrontierService(frontier);
-        server = serverBuilder.addService(tracingInterceptor.intercept(frontierService)).build();
+        frontierService = new FrontierService(frontier);
+        server = serverBuilder
+                .addService(tracingInterceptor.intercept(frontierService))
+                .addService(health.getHealthService())
+                .build();
     }
 
     public FrontierApiServer start() {
@@ -66,29 +78,38 @@ public class FrontierApiServer implements AutoCloseable {
 
             return this;
         } catch (IOException ex) {
-            close();
+            shutdown();
             throw new UncheckedIOException(ex);
         }
     }
 
-    @Override
-    public void close() {
+    public void shutdown() {
+        healthCheckerExecutorService.shutdownNow();
+        try {
+            healthCheckerExecutorService.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            System.err.println("Interrupted while waiting for health checker shutdown");
+        }
+        health.enterTerminalState();
+
         long startTime = System.currentTimeMillis();
         server.shutdown();
+        frontierService.shutdown();
         try {
-            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
-            server.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
+            server.awaitTermination(shutdownTimeoutMillis - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            server.shutdownNow();
+            System.err.println("Interrupted while waiting for server shutdown");
         }
-        threadPool.shutdown();
         try {
-            long timeLeftBeforeKill = shutdownTimeoutMillis - (System.currentTimeMillis() - startTime);
-            threadPool.awaitTermination(timeLeftBeforeKill, TimeUnit.MILLISECONDS);
+            boolean gracefulStop = frontierService.awaitTermination(shutdownTimeoutMillis - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
+            if (gracefulStop) {
+                System.err.println("*** server shut down gracefully");
+            } else {
+                System.err.println("*** server shutdown timed out");
+            }
         } catch (InterruptedException e) {
-            threadPool.shutdownNow();
+            e.printStackTrace();
         }
-        System.err.println("*** server shut down");
     }
 
     /**
@@ -97,12 +118,26 @@ public class FrontierApiServer implements AutoCloseable {
     public void blockUntilShutdown() {
         if (server != null) {
             try {
-                server.awaitTermination();
+                frontierService.awaitTermination();
             } catch (InterruptedException ex) {
-                close();
+                shutdown();
                 throw new RuntimeException(ex);
             }
         }
     }
 
+    class HealthChecker implements Runnable {
+        private final Frontier frontier;
+        private final HealthStatusManager health;
+
+        public HealthChecker(Frontier frontier, HealthStatusManager health) {
+            this.frontier = frontier;
+            this.health = health;
+        }
+
+        @Override
+        public void run() {
+            health.setStatus("", frontier.checkHealth());
+        }
+    }
 }

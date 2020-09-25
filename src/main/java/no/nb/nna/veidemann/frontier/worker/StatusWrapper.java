@@ -16,17 +16,28 @@
 package no.nb.nna.veidemann.frontier.worker;
 
 import com.google.protobuf.Timestamp;
+import com.rethinkdb.RethinkDB;
+import com.rethinkdb.gen.ast.ReqlFunction1;
+import com.rethinkdb.gen.ast.Update;
+import com.rethinkdb.model.MapObject;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.CrawlScope;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
+import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.ProtoUtils;
+import no.nb.nna.veidemann.db.RethinkDbConnection;
+import no.nb.nna.veidemann.db.Tables;
+import no.nb.nna.veidemann.db.initializer.RethinkDbInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  *
@@ -41,31 +52,131 @@ public class StatusWrapper {
 
     private boolean dirty;
 
-    private StatusWrapper(CrawlExecutionStatus status) {
+    private final Frontier frontier;
+
+    static final RethinkDB r = RethinkDB.r;
+
+    private StatusWrapper(Frontier frontier, CrawlExecutionStatus status) {
+        this.frontier = frontier;
         this.status = status.toBuilder();
     }
 
-    private StatusWrapper(CrawlExecutionStatus.Builder status) {
+    private StatusWrapper(Frontier frontier, CrawlExecutionStatus.Builder status) {
+        this.frontier = frontier;
         this.status = status;
     }
 
-    public static StatusWrapper getStatusWrapper(String executionId) throws DbException {
-        return new StatusWrapper(DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(executionId));
+    public static StatusWrapper getStatusWrapper(Frontier frontier, String executionId) throws DbException {
+        return new StatusWrapper(frontier, DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(executionId));
     }
 
-    public static StatusWrapper getStatusWrapper(CrawlExecutionStatus status) {
-        return new StatusWrapper(status);
+    public static StatusWrapper getStatusWrapper(Frontier frontier, CrawlExecutionStatus status) {
+        return new StatusWrapper(frontier, status);
     }
 
-    public static StatusWrapper getStatusWrapper(CrawlExecutionStatus.Builder status) {
-        return new StatusWrapper(status);
+    public static StatusWrapper getStatusWrapper(Frontier frontier, CrawlExecutionStatus.Builder status) {
+        return new StatusWrapper(frontier, status);
     }
 
     public synchronized StatusWrapper saveStatus() throws DbException {
         if (change != null) {
-            status = DbService.getInstance().getExecutionsAdapter().updateCrawlExecutionStatus(
-                    change.setId(status.getId()).build())
-                    .toBuilder();
+            change.setId(status.getId());
+
+            ReqlFunction1 updateFunc = (doc) -> {
+                MapObject rMap = r.hashMap("lastChangeTime", r.now());
+
+                switch (change.getState()) {
+                    case UNDEFINED:
+                        break;
+                    case FETCHING:
+                    case SLEEPING:
+                    case CREATED:
+                        throw new IllegalArgumentException("Only the final states are allowed to be updated");
+                    default:
+                        rMap.with("state", change.getState().name());
+                }
+                if (change.getAddBytesCrawled() != 0) {
+                    rMap.with("bytesCrawled", doc.g("bytesCrawled").add(change.getAddBytesCrawled()).default_(change.getAddBytesCrawled()));
+                }
+                if (change.getAddDocumentsCrawled() != 0) {
+                    rMap.with("documentsCrawled", doc.g("documentsCrawled").add(change.getAddDocumentsCrawled()).default_(change.getAddDocumentsCrawled()));
+                }
+                if (change.getAddDocumentsDenied() != 0) {
+                    rMap.with("documentsDenied", doc.g("documentsDenied").add(change.getAddDocumentsDenied()).default_(change.getAddDocumentsDenied()));
+                }
+                if (change.getAddDocumentsFailed() != 0) {
+                    rMap.with("documentsFailed", doc.g("documentsFailed").add(change.getAddDocumentsFailed()).default_(change.getAddDocumentsFailed()));
+                }
+                if (change.getAddDocumentsOutOfScope() != 0) {
+                    rMap.with("documentsOutOfScope", doc.g("documentsOutOfScope").add(change.getAddDocumentsOutOfScope()).default_(change.getAddDocumentsOutOfScope()));
+                }
+                if (change.getAddDocumentsRetried() != 0) {
+                    rMap.with("documentsRetried", doc.g("documentsRetried").add(change.getAddDocumentsRetried()).default_(change.getAddDocumentsRetried()));
+                }
+                if (change.getAddUrisCrawled() != 0) {
+                    rMap.with("urisCrawled", doc.g("urisCrawled").add(change.getAddUrisCrawled()).default_(change.getAddUrisCrawled()));
+                }
+                if (change.hasEndTime()) {
+                    rMap.with("endTime", ProtoUtils.tsToOdt(change.getEndTime()));
+                }
+                if (change.hasError()) {
+                    rMap.with("error", ProtoUtils.protoToRethink(change.getError()));
+                }
+                if (change.hasAddCurrentUri()) {
+                    rMap.with("currentUriId", doc.g("currentUriId").default_(r.array()).setUnion(r.array(change.getAddCurrentUri().getId())));
+                }
+                if (change.hasDeleteCurrentUri()) {
+                    rMap.with("currentUriId", doc.g("currentUriId").default_(r.array()).setDifference(r.array(change.getDeleteCurrentUri().getId())));
+                }
+                return doc.merge(rMap)
+                        .merge(d -> r.branch(
+                                // If the original document had one of the ended states, then keep the
+                                // original endTime if it exists, otherwise use the one from the change request
+                                doc.g("state").match("FINISHED|ABORTED_TIMEOUT|ABORTED_SIZE|ABORTED_MANUAL|FAILED|DIED"),
+                                r.hashMap("state", doc.g("state")).with("endTime",
+                                        r.branch(doc.hasFields("endTime"), doc.g("endTime"), d.g("endTime").default_((Object) null))),
+
+                                // If the change request contained an end state, use it
+                                d.g("state").match("FINISHED|ABORTED_TIMEOUT|ABORTED_SIZE|ABORTED_MANUAL|FAILED|DIED"),
+                                r.hashMap("state", d.g("state")),
+
+                                // Set the state to fetching if currentUriId contains at least one value, otherwise set state to sleeping.
+                                d.g("currentUriId").default_(r.array()).count().gt(0),
+                                r.hashMap("state", "FETCHING"),
+                                r.hashMap("state", "SLEEPING")))
+
+                        // Set start time if not set and state is fetching
+                        .merge(d -> r.branch(doc.hasFields("startTime").not().and(d.g("state").match("FETCHING")),
+                                r.hashMap("startTime", r.now()),
+                                r.hashMap()));
+            };
+
+
+            // Update the CrawlExecutionStatus
+            Update qry = r.table(Tables.EXECUTIONS.name)
+                    .get(change.getId())
+                    .update(updateFunc);
+
+
+            // Return both the new and the old values
+            qry = qry.optArg("return_changes", "always");
+            RethinkDbConnection conn = ((RethinkDbInitializer) DbService.getInstance().getDbInitializer()).getDbConnection();
+            Map<String, Object> response = conn.exec("db-updateCrawlExecutionStatus", qry);
+            List<Map<String, Map>> changes = (List<Map<String, Map>>) response.get("changes");
+
+            // Check if this update was setting the end time
+            boolean wasNotEnded = changes.get(0).get("old_val") == null || changes.get(0).get("old_val").get("endTime") == null;
+            CrawlExecutionStatus newDoc = ProtoUtils.rethinkToProto(changes.get(0).get("new_val"), CrawlExecutionStatus.class);
+            if (wasNotEnded && newDoc.hasEndTime()) {
+                frontier.updateJobExecution(newDoc.getJobExecutionId());
+            }
+
+            // Remove queued uri from queue if change request asks for deletion
+            if (change.hasDeleteCurrentUri()) {
+                frontier.getCrawlQueueManager().removeQUri(change.getDeleteCurrentUri(), change.getDeleteCurrentUri().getCrawlHostGroupId(), true);
+            }
+
+            status = newDoc.toBuilder();
             change = null;
             dirty = false;
         }
@@ -115,7 +226,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper setEndState(CrawlExecutionStatus.State state) {
-        LOG.info("Reached end of crawl '{}' with state: {}", getId(), state);
+        LOG.debug("Reached end of crawl '{}' with state: {}", getId(), state);
         dirty = true;
         getChange().setState(state).setEndTime(ProtoUtils.getNowTs());
         return this;
@@ -191,15 +302,23 @@ public class StatusWrapper {
         return status.build();
     }
 
+    public StatusWrapper addCurrentUri(QueuedUri uri) {
+        getChange().setAddCurrentUri(uri);
+        return this;
+    }
+
     public StatusWrapper addCurrentUri(QueuedUriWrapper uri) {
         getChange().setAddCurrentUri(uri.getQueuedUri());
         return this;
     }
 
+    public StatusWrapper removeCurrentUri(QueuedUri uri) {
+        getChange().setDeleteCurrentUri(uri);
+        return this;
+    }
+
     public StatusWrapper removeCurrentUri(QueuedUriWrapper uri) {
-        if (!uri.justAdded) {
-            getChange().setDeleteCurrentUri(uri.getQueuedUri());
-        }
+        getChange().setDeleteCurrentUri(uri.getQueuedUri());
         return this;
     }
 

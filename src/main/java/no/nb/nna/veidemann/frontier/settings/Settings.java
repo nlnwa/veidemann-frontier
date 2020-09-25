@@ -42,9 +42,9 @@ public class Settings extends CommonSettings {
 
     private int terminationGracePeriodSeconds;
 
-    private String lockRedisHost;
+    private String redisHost;
 
-    private String lockRedisPort;
+    private String redisPort;
 
     public int getApiPort() {
         return apiPort;
@@ -126,19 +126,19 @@ public class Settings extends CommonSettings {
         this.terminationGracePeriodSeconds = terminationGracePeriodSeconds;
     }
 
-    public String getLockRedisHost() {
-        return lockRedisHost;
+    public String getRedisHost() {
+        return redisHost;
     }
 
-    public void setLockRedisHost(String lockRedisHost) {
-        this.lockRedisHost = lockRedisHost;
+    public void setRedisHost(String redisHost) {
+        this.redisHost = redisHost;
     }
 
-    public String getLockRedisPort() {
-        return lockRedisPort;
+    public String getRedisPort() {
+        return redisPort;
     }
 
-    public void setLockRedisPort(String lockRedisPort) {
-        this.lockRedisPort = lockRedisPort;
+    public void setRedisPort(String redisPort) {
+        this.redisPort = redisPort;
     }
 }
