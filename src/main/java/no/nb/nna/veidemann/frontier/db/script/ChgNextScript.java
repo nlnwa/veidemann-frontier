@@ -29,10 +29,10 @@ public class ChgNextScript extends RedisJob<CrawlHostGroup> {
                 if (LOG.isInfoEnabled()) {
                     long now = System.currentTimeMillis();
                     for (Tuple t : jedis.zrangeWithScores(CHG_WAIT_KEY, 0, 0)) {
-                        LOG.info("No ready crawlhost group. An idle CHG with key {} is waiting due to politeness for {} ms", t.getElement(), (long) t.getScore() - now);
+                        LOG.debug("No ready crawlhost group. An idle CHG with key {} is waiting due to politeness for {} ms", t.getElement(), (long) t.getScore() - now);
                     }
                     for (Tuple t : jedis.zrangeWithScores(CHG_BUSY_KEY, 0, 0)) {
-                        LOG.info("No ready crawlhost group. A busy CHG with key {} will be realeased in {} ms if fetch is to slow", t.getElement(), (long) t.getScore() - now);
+                        LOG.debug("No ready crawlhost group. A busy CHG with key {} will be realeased in {} ms if fetch is to slow", t.getElement(), (long) t.getScore() - now);
                     }
                 }
                 return null;
