@@ -217,7 +217,8 @@ public class CrawlQueueManager {
             ScanResult<String> queues = jedis.scan("0", new ScanParams().match(UEID + "*:" + executionId));
             while (!queues.isCompleteIteration()) {
                 for (String queue : queues.getResult()) {
-                    String chgp = queue.split(":")[1];
+                    String[] queueParts = queue.split(":");
+                    String chgp = queueParts[1] + ":" + queueParts[2];
                     ScanResult<Tuple> uris = new ScanResult<Tuple>("0", null);
                     do {
                         uris = jedis.zscan(queue, uris.getCursor());
@@ -336,6 +337,9 @@ public class CrawlQueueManager {
 
     private void removeQUri(String id, String chgp, String eid, long sequence, long fetchTime, boolean deleteUri) {
         long numRemoved = removeUriScript.run(id, chgp, eid, sequence, fetchTime, deleteUri);
+        if (numRemoved != 1) {
+            LOG.debug("Queued uri id '{}' to be removed from Redis was not found", id);
+        }
     }
 
     public void removeQUri(QueuedUri qUri, String chg, boolean deleteUri) {
@@ -347,6 +351,9 @@ public class CrawlQueueManager {
                 qUri.getSequence(),
                 qUri.getEarliestFetchTimeStamp().getSeconds(),
                 deleteUri);
+        if (numRemoved != 1) {
+            LOG.debug("Queued uri id '{}' to be removed from Redis was not found", qUri.getId());
+        }
     }
 
     private CrawlHostGroup getNextReadyCrawlHostGroup(Context ctx) {
