@@ -73,11 +73,7 @@ public class LimitsCheck {
                 case SLEEPING:
                 case UNDEFINED:
                 case UNRECOGNIZED:
-                    status.setEndState(CrawlExecutionStatus.State.ABORTED_SIZE)
-                            .incrementDocumentsDenied(
-                                    frontier.getCrawlQueueManager()
-                                            .deleteQueuedUrisForExecution(status.getId())
-                            ).saveStatus();
+                    status.setState(CrawlExecutionStatus.State.ABORTED_SIZE).saveStatus();
             }
             return true;
         }
@@ -92,11 +88,7 @@ public class LimitsCheck {
                 case SLEEPING:
                 case UNDEFINED:
                 case UNRECOGNIZED:
-                    status.setEndState(CrawlExecutionStatus.State.ABORTED_TIMEOUT);
-                    status.incrementDocumentsDenied(
-                            frontier.getCrawlQueueManager()
-                                    .deleteQueuedUrisForExecution(status.getId())
-                    ).saveStatus();
+                    status.setState(CrawlExecutionStatus.State.ABORTED_TIMEOUT).saveStatus();
             }
             return true;
         }

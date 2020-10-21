@@ -27,8 +27,8 @@
         <docker.tag>${project.version}</docker.tag>
 
         <veidemann.api.version>1.0.0-beta18</veidemann.api.version>
-        <veidemann.commons.version>0.4.7</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.4.12</veidemann.rethinkdbadapter.version>
+        <veidemann.commons.version>0.4.8</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.4.14</veidemann.rethinkdbadapter.version>
 
         <log4j.version>2.13.3</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>

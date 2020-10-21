@@ -130,7 +130,8 @@ public class CrawlExecution {
                 .startManual();
 
         try {
-            if (isManualAbort() || LimitsCheck.isLimitReached(frontier, limits, status, qUri)) {
+            LimitsCheck.isLimitReached(frontier, limits, status, qUri);
+            if (isAborted()) {
                 delayMs = -1L;
                 status.removeCurrentUri(qUri);
                 if (qUri.hasError() && qUri.getDiscoveryPath().isEmpty()) {
@@ -268,7 +269,7 @@ public class CrawlExecution {
                 status.saveStatus();
 
                 // Recheck if user aborted crawl while fetching last uri.
-                if (isManualAbort()) {
+                if (isAborted()) {
                     delayMs = 0L;
                 }
             } catch (DbException e) {
@@ -369,14 +370,17 @@ public class CrawlExecution {
         }
     }
 
-    private boolean isManualAbort() throws DbException {
-        if (status.getState() == CrawlExecutionStatus.State.ABORTED_MANUAL) {
-            status.incrementDocumentsDenied(frontier.getCrawlQueueManager()
-                    .deleteQueuedUrisForExecution(status.getId()));
+    private boolean isAborted() throws DbException {
+        switch (status.getState()) {
+            case ABORTED_MANUAL:
+            case ABORTED_TIMEOUT:
+            case ABORTED_SIZE:
+                status.incrementDocumentsDenied(frontier.getCrawlQueueManager()
+                        .deleteQueuedUrisForExecution(status.getId()));
 
-            // Re-set end state to ensure end time is updated
-            status.setEndState(status.getState()).saveStatus();
-            return true;
+                // Re-set end state to ensure end time is updated
+                status.setEndState(status.getState()).saveStatus();
+                return true;
         }
         return false;
     }
