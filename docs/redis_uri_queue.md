@@ -1,3 +1,5 @@
+>*Work in progress*
+
 ```Id=A, Uri=foo1.com, eid=eid1, chgid=chg1, weight=1
 Id=B, Uri=foo2.com, eid=eid1, chgid=chg1, weight=1
 Id=C, Uri=foo3.com, eid=eid1, chgid=chg2, weight=1
@@ -59,6 +61,3 @@ add(uri)
 ZADD UEID:chg:eid 0 seq:fetchTime:uri.id
 ZADD UCHG:chg uri.weight uri.eid
 ```
-
-CrawlHostGroup
-
