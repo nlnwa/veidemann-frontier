@@ -1,9 +1,12 @@
 package no.nb.nna.veidemann.frontier.db;
 
 import com.rethinkdb.RethinkDB;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.db.RethinkDbConnection;
 import no.nb.nna.veidemann.db.Tables;
 import no.nb.nna.veidemann.frontier.db.script.ChgDelayedQueueScript;
+import no.nb.nna.veidemann.frontier.worker.Frontier;
+import no.nb.nna.veidemann.frontier.worker.StatusWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
@@ -19,6 +22,7 @@ public class CrawlQueueWorker {
 
     static final RethinkDB r = RethinkDB.r;
 
+    private final Frontier frontier;
     private final RethinkDbConnection conn;
     private final JedisPool jedisPool;
     ChgDelayedQueueScript delayedChgQueueScript;
@@ -35,6 +39,10 @@ public class CrawlQueueWorker {
                 moved = delayedChgQueueScript.run(CrawlQueueManager.CHG_BUSY_KEY, CrawlQueueManager.CHG_READY_KEY);
                 if (moved > 0) {
                     LOG.warn("{} CrawlHostGroups moved from busy state to ready state", moved);
+                }
+                moved = delayedChgQueueScript.run(CrawlQueueManager.CRAWL_EXECUTION_RUNNING_KEY, CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
+                if (moved > 0) {
+                    LOG.debug("{} CrawlExecutions moved from running state to timeout state", moved);
                 }
             } catch (Throwable t) {
                 LOG.error("Error running chg queue manager script", t);
@@ -65,7 +73,40 @@ public class CrawlQueueWorker {
         }
     };
 
-    public CrawlQueueWorker(RethinkDbConnection conn, JedisPool jedisPool) {
+    Runnable crawlExecutionTimeoutWorker = new Runnable() {
+        @Override
+        public void run() {
+            try (Jedis jedis = jedisPool.getResource()) {
+                String toBeRemoved = jedis.lpop(CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
+                while (toBeRemoved != null) {
+                    try {
+                        StatusWrapper s = StatusWrapper.getStatusWrapper(frontier, toBeRemoved);
+                        switch (s.getState()) {
+                            case SLEEPING:
+                            case CREATED:
+                                LOG.debug("CrawlExecution '{}' with state {} timed out", s.getId(), s.getState());
+                                s.incrementDocumentsDenied(frontier.getCrawlQueueManager()
+                                        .deleteQueuedUrisForExecution(toBeRemoved))
+                                        .setEndState(State.ABORTED_TIMEOUT)
+                                        .saveStatus();
+                                break;
+                            default:
+                                LOG.trace("CrawlExecution '{}' with state {} was already finished", s.getId(), s.getState());
+                        }
+                    } catch (Exception e) {
+                        // Don't worry execution will be deleted at some point later
+                    }
+
+                    toBeRemoved = jedis.lpop(CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    };
+
+    public CrawlQueueWorker(Frontier frontier, RethinkDbConnection conn, JedisPool jedisPool) {
+        this.frontier = frontier;
         this.conn = conn;
         this.jedisPool = jedisPool;
         executor = Executors.newScheduledThreadPool(1);
@@ -73,6 +114,7 @@ public class CrawlQueueWorker {
         delayedChgQueueScript = new ChgDelayedQueueScript(jedisPool);
         executor.scheduleWithFixedDelay(chgQueueWorker, 400, 400, TimeUnit.MILLISECONDS);
         executor.scheduleWithFixedDelay(removeUriQueueWorker, 1000, 1000, TimeUnit.MILLISECONDS);
+        executor.scheduleWithFixedDelay(crawlExecutionTimeoutWorker, 1100, 1100, TimeUnit.MILLISECONDS);
     }
 
 }

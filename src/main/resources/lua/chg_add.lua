@@ -3,24 +3,21 @@
 --- KEYS[2]: waitKey
 --- KEYS[3]: crawlExecutionIdCountKey
 --- KEYS[4]: queueCountTotalKey
---- ARGV[1]: nextFetchTimeFieldName
---- ARGV[2]: nextReadyTime
---- ARGV[3]: uriCountFieldName
---- ARGV[4]: crawlExecutionId
+--- ARGV[1]: nextReadyTime
+--- ARGV[2]: crawlExecutionId
+--- ARGV[3]: chg
 ---
 
-local changes = redis.call('HSETNX', KEYS[1], ARGV[1], ARGV[2])
-
 --- Increment chg queue count
-redis.call('HINCRBY', KEYS[1], ARGV[3], 1)
+local queueCount = redis.call('INCR', KEYS[1])
 
 --- Increment crawl execution queue count
-redis.call('HINCRBY', KEYS[3], ARGV[4], 1)
+redis.call('HINCRBY', KEYS[3], ARGV[2], 1)
 
 --- Increment total queue count
 redis.call('INCR', KEYS[4])
 
 --- If new chg was created, queue it.
-if changes > 0 then
-    redis.call('ZADD', KEYS[2], ARGV[2], ARGV[4])
+if queueCount == 1 then
+    redis.call('ZADD', KEYS[2], ARGV[1], ARGV[3])
 end

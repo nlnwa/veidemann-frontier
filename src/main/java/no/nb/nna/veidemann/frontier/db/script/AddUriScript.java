@@ -7,15 +7,7 @@ import redis.clients.jedis.JedisPool;
 
 import java.util.List;
 
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_PREFIX;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_WAIT_KEY;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.EIDC;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.NEXT_FETCH_TIME_FIELD;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.QUEUE_COUNT_TOTAL_KEY;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.UCHG;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.UEID;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.URI_COUNT_FIELD;
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.createChgPolitenessKey;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.*;
 
 public class AddUriScript extends RedisJob<Void> {
     final LuaScript addUriScript;
@@ -57,8 +49,8 @@ public class AddUriScript extends RedisJob<Void> {
             byte[] readyTimeString = Long.toString(readyTime).getBytes();
 
             List<byte[]> chgKeys = ImmutableList.of(chgpKey.getBytes(), CHG_WAIT_KEY.getBytes(),
-                    EIDC.getBytes(), QUEUE_COUNT_TOTAL_KEY.getBytes());
-            List<byte[]> chgArgs = ImmutableList.of(NEXT_FETCH_TIME_FIELD, readyTimeString, URI_COUNT_FIELD);
+                    CRAWL_EXECUTION_ID_COUNT_KEY.getBytes(), QUEUE_COUNT_TOTAL_KEY.getBytes());
+            List<byte[]> chgArgs = ImmutableList.of(readyTimeString, eid.getBytes(), chgp.getBytes());
             addChgScript.runBytes(jedis, chgKeys, chgArgs);
 
             return null;

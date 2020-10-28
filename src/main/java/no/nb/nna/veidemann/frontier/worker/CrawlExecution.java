@@ -353,6 +353,7 @@ public class CrawlExecution {
     }
 
     private void endCrawl(CrawlExecutionStatus.State state) throws DbException {
+        frontier.getCrawlQueueManager().removeCrawlExecutionFromTimeoutSchedule(status.getId());
         status.setEndState(state).saveStatus();
     }
 

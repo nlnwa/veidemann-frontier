@@ -5,7 +5,7 @@
 --- KEYS[4]: readyKey
 --- KEYS[5]: busyKey
 --- KEYS[6]: waitKey
---- KEYS[7]: eidcKey
+--- KEYS[7]: crawlExecutionIdCountKey
 --- KEYS[8]: Queue total count key
 --- KEYS[9]: uri remove queue key
 ---
@@ -18,7 +18,7 @@
 local removed = redis.call('ZREM', KEYS[1], ARGV[1])
 if removed > 0 then
     -- Decrement CHG queue count
-    if redis.call('HINCRBY', KEYS[3], 'c', -1) == 0 then
+    if redis.call('DECR', KEYS[3]) <= 0 then
         redis.call('DEL', KEYS[3])
         redis.call('LREM', KEYS[4], 0, ARGV[3])
         redis.call('ZREM', KEYS[5], ARGV[3])
@@ -26,7 +26,7 @@ if removed > 0 then
     end
     -- Decrement crawl execution queue count
     local remaining_uri_count = redis.call('HINCRBY', KEYS[7], ARGV[2], -1)
-    if remaining_uri_count == 0 then
+    if remaining_uri_count <= 0 then
         redis.call('HDEL', KEYS[7], ARGV[2])
     end
     -- Decrement total queue count
