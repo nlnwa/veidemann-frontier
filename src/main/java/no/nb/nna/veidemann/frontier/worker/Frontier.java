@@ -46,6 +46,7 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.net.URISyntaxException;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Objects;
@@ -130,9 +131,16 @@ public class Frontier implements AutoCloseable {
                     .saveStatus();
         }
 
-        long maxDuration = request.getJob().getCrawlJob().getLimits().getMaxDurationS();
-        if (maxDuration > 0) {
-            long timeout = ProtoUtils.tsToOdt(status.getCreatedTime()).plus(maxDuration, ChronoUnit.SECONDS).toEpochSecond();
+        OffsetDateTime timeout = null;
+        if (request.hasTimeout()) {
+            timeout = ProtoUtils.tsToOdt(request.getTimeout());
+        } else {
+            long maxDuration = request.getJob().getCrawlJob().getLimits().getMaxDurationS();
+            if (maxDuration > 0) {
+                timeout = ProtoUtils.tsToOdt(status.getCreatedTime()).plus(maxDuration, ChronoUnit.SECONDS);
+            }
+        }
+        if (timeout != null) {
             getCrawlQueueManager().scheduleCrawlExecutionTimeout(status.getId(), timeout);
         }
 

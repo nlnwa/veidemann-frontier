@@ -31,6 +31,7 @@ import redis.clients.jedis.ScanParams;
 import redis.clients.jedis.ScanResult;
 import redis.clients.jedis.Tuple;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -353,9 +354,9 @@ public class CrawlQueueManager {
         releaseChgScript.run(crawlHostGroup, System.currentTimeMillis() + nextFetchDelayMs);
     }
 
-    public void scheduleCrawlExecutionTimeout(String ceid, long timeoutS) {
+    public void scheduleCrawlExecutionTimeout(String ceid, OffsetDateTime timeout) {
         try (Jedis jedis = jedisPool.getResource()) {
-            jedis.zadd(CRAWL_EXECUTION_RUNNING_KEY, (timeoutS + 5) * 1000, ceid);
+            jedis.zadd(CRAWL_EXECUTION_RUNNING_KEY, timeout.toInstant().toEpochMilli(), ceid);
         }
     }
 

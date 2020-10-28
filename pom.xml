@@ -26,7 +26,7 @@
         <maven.compiler.target>11</maven.compiler.target>
         <docker.tag>${project.version}</docker.tag>
 
-        <veidemann.api.version>1.0.0-beta18</veidemann.api.version>
+        <veidemann.api.version>1.0.0-beta19</veidemann.api.version>
         <veidemann.commons.version>0.4.8</veidemann.commons.version>
         <veidemann.rethinkdbadapter.version>0.4.14</veidemann.rethinkdbadapter.version>
 
