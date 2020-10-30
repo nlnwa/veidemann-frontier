@@ -1,15 +1,14 @@
 package no.nb.nna.veidemann.frontier.db.script;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.Longs;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
-import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Tuple;
 
 import java.util.List;
-import java.util.Set;
 
 import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.*;
 
@@ -41,8 +40,19 @@ public class ChgNextScript extends RedisJob<CrawlHostGroup> {
             String chgpKey = CHG_PREFIX + chgp;
             List<byte[]> keys = ImmutableList.of(CHG_BUSY_KEY.getBytes(), chgpKey.getBytes());
             List<byte[]> args = ImmutableList.of(chgp.getBytes(), String.valueOf(System.currentTimeMillis() + busyTimeout).getBytes());
-            List<byte[]> result = (List<byte[]>) chgNextScript.runBytes(jedis, keys, args);
-            return deserializeCrawlHostGroup(chgp, result);
+            byte[] result = (byte[]) chgNextScript.runBytes(jedis, keys, args);
+
+            String[] idParts = chgp.split(":", 2);
+            CrawlHostGroup.Builder chg = CrawlHostGroup.newBuilder()
+                    .setId(idParts[0])
+                    .setPolitenessId(idParts[1]);
+            if (result != null) {
+                Long count = Longs.tryParse(new String(result));
+                if (count != null) {
+                    chg.setQueuedUriCount(count);
+                }
+            }
+            return chg.build();
         });
     }
 }

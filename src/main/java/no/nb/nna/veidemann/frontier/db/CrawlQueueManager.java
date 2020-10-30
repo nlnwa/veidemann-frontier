@@ -1,10 +1,7 @@
 package no.nb.nna.veidemann.frontier.db;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import com.google.common.primitives.Longs;
-import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.protobuf.Timestamp;
 import com.rethinkdb.RethinkDB;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
@@ -25,6 +22,7 @@ import no.nb.nna.veidemann.frontier.db.script.NextUriScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript.NextUriScriptResult;
 import no.nb.nna.veidemann.frontier.db.script.RemoveUriScript;
 import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
+import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
@@ -33,26 +31,24 @@ import redis.clients.jedis.ScanParams;
 import redis.clients.jedis.ScanResult;
 import redis.clients.jedis.Tuple;
 
-import java.util.Arrays;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-import static java.time.temporal.ChronoUnit.MILLIS;
-
 public class CrawlQueueManager {
     public final static String CHG_BUSY_KEY = "chg_busy";
     public final static String CHG_READY_KEY = "chg_ready";
     public final static String CHG_WAIT_KEY = "chg_wait";
-    public final static byte[] NEXT_FETCH_TIME_FIELD = "n".getBytes();
-    public final static byte[] URI_COUNT_FIELD = "c".getBytes();
+    public final static String CRAWL_EXECUTION_RUNNING_KEY = "ceid_running";
+    public final static String CRAWL_EXECUTION_TIMEOUT_KEY = "ceid_timeout";
     private static final Logger LOG = LoggerFactory.getLogger(CrawlQueueManager.class);
 
     public static final String UEID = "UEID:";
     public static final String UCHG = "UCHG:";
-    public static final String EIDC = "EIDC";
+    public static final String CRAWL_EXECUTION_ID_COUNT_KEY = "EIDC";
     public static final String CHG_PREFIX = "CHG:";
     public static final String QUEUE_COUNT_TOTAL_KEY = "QCT";
     public static final String REMOVE_URI_QUEUE_KEY = "REMURI";
@@ -74,7 +70,7 @@ public class CrawlQueueManager {
 
     static final Semaphore nextChgLock = new Semaphore(3);
 
-    public CrawlQueueManager(RethinkDbConnection conn, JedisPool jedisPool) {
+    public CrawlQueueManager(Frontier frontier, RethinkDbConnection conn, JedisPool jedisPool) {
         this.conn = conn;
         this.jedisPool = jedisPool;
         addUriScript = new AddUriScript(jedisPool);
@@ -83,7 +79,7 @@ public class CrawlQueueManager {
         getNextChgScript = new ChgNextScript(jedisPool);
         releaseChgScript = new ChgReleaseScript(jedisPool);
 
-        this.chgManager = new CrawlQueueWorker(conn, jedisPool);
+        this.chgManager = new CrawlQueueWorker(frontier, conn, jedisPool);
     }
 
     public static String createChgPolitenessKey(String chgId, String politenessId) {
@@ -96,33 +92,6 @@ public class CrawlQueueManager {
 
     public static String createChgPolitenessKey(CrawlHostGroup chg) {
         return createChgPolitenessKey(chg.getId(), chg.getPolitenessId());
-    }
-
-    public static Map<byte[], byte[]> serializeCrawlHostGroup(CrawlHostGroup chg) {
-        return ImmutableMap.of(NEXT_FETCH_TIME_FIELD, chg.getNextFetchTime().toByteArray());
-    }
-
-    public static CrawlHostGroup deserializeCrawlHostGroup(String id, List<byte[]> data) {
-        id = id.replace(CHG_PREFIX, "");
-        String[] idParts = id.split(":", 2);
-        CrawlHostGroup.Builder chg = CrawlHostGroup.newBuilder()
-                .setId(idParts[0])
-                .setPolitenessId(idParts[1]);
-        for (int i = 0; i < data.size(); i = i + 2) {
-            if (Arrays.equals(NEXT_FETCH_TIME_FIELD, data.get(i))) {
-                try {
-                    chg.setNextFetchTime(Timestamp.parseFrom(data.get(i + 1)));
-                } catch (InvalidProtocolBufferException e) {
-                    throw new RuntimeException(e);
-                }
-            } else if (Arrays.equals(URI_COUNT_FIELD, data.get(i))) {
-                Long count = Longs.tryParse(new String(data.get(i + 1)));
-                if (count != null) {
-                    chg.setQueuedUriCount(count);
-                }
-            }
-        }
-        return chg.build();
     }
 
     public QueuedUri addToCrawlHostGroup(QueuedUri qUri) throws DbException {
@@ -301,7 +270,7 @@ public class CrawlQueueManager {
 
     public long countByCrawlExecution(String executionId) {
         try (Jedis jedis = jedisPool.getResource()) {
-            String c = jedis.hget(EIDC, executionId);
+            String c = jedis.hget(CRAWL_EXECUTION_ID_COUNT_KEY, executionId);
             if (c == null) {
                 return 0;
             }
@@ -311,7 +280,7 @@ public class CrawlQueueManager {
 
     public long countByCrawlHostGroup(CrawlHostGroup chg) {
         try (Jedis jedis = jedisPool.getResource()) {
-            String c = jedis.hget(CHG_PREFIX + createChgPolitenessKey(chg), "c");
+            String c = jedis.get(CHG_PREFIX + createChgPolitenessKey(chg));
             if (c == null) {
                 return 0;
             }
@@ -371,9 +340,6 @@ public class CrawlQueueManager {
                 return null;
             }
             CrawlHostGroup chg = getNextChgScript.run(BUSY_TIMEOUT);
-            if (chg != null) {
-                chg = chg.toBuilder().setBusy(true).build();
-            }
             return chg;
         } catch (Exception e) {
             LOG.warn(e.getMessage(), e);
@@ -385,9 +351,18 @@ public class CrawlQueueManager {
 
     public void releaseCrawlHostGroup(CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
         LOG.debug("Releasing CrawlHostGroup: " + crawlHostGroup.getId() + ", with queue count: " + crawlHostGroup.getQueuedUriCount());
-        crawlHostGroup = crawlHostGroup.toBuilder()
-                .setNextFetchTime(ProtoUtils.odtToTs(ProtoUtils.getNowOdt().plus(nextFetchDelayMs, MILLIS)))
-                .build();
-        releaseChgScript.run(crawlHostGroup);
+        releaseChgScript.run(crawlHostGroup, System.currentTimeMillis() + nextFetchDelayMs);
+    }
+
+    public void scheduleCrawlExecutionTimeout(String ceid, OffsetDateTime timeout) {
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.zadd(CRAWL_EXECUTION_RUNNING_KEY, timeout.toInstant().toEpochMilli(), ceid);
+        }
+    }
+
+    public void removeCrawlExecutionFromTimeoutSchedule(String executionId) {
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.zrem(CRAWL_EXECUTION_RUNNING_KEY, executionId);
+        }
     }
 }

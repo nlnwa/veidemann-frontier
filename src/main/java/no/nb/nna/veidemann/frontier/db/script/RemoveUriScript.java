@@ -38,7 +38,8 @@ public class RemoveUriScript extends RedisJob<Long> {
                 removeQueue = uriId;
             }
 
-            List<String> keys = ImmutableList.of(ueIdKey, uchgKey, chgpKey, CHG_READY_KEY, CHG_BUSY_KEY, CHG_WAIT_KEY, EIDC, QUEUE_COUNT_TOTAL_KEY, REMOVE_URI_QUEUE_KEY);
+            List<String> keys = ImmutableList.of(ueIdKey, uchgKey, chgpKey, CHG_READY_KEY, CHG_BUSY_KEY,
+                    CHG_WAIT_KEY, CRAWL_EXECUTION_ID_COUNT_KEY, QUEUE_COUNT_TOTAL_KEY, REMOVE_URI_QUEUE_KEY);
             List<String> args = ImmutableList.of(ueIdVal, eid, chgp, removeQueue);
             long urisRemoved = (long) removeUriScript.runString(jedis, keys, args);
             return urisRemoved;

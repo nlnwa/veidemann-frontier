@@ -46,9 +46,13 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.net.URISyntaxException;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -78,7 +82,7 @@ public class Frontier implements AutoCloseable {
         this.dnsServiceClient = dnsServiceClient;
         this.scopeChecker = new ScopeCheck(outOfScopeHandlerClient);
         conn = ((RethinkDbInitializer) DbService.getInstance().getDbInitializer()).getDbConnection();
-        this.crawlQueueManager = new CrawlQueueManager(conn, jedisPool);
+        this.crawlQueueManager = new CrawlQueueManager(this, conn, jedisPool);
 
         configCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(5, TimeUnit.MINUTES)
@@ -90,6 +94,8 @@ public class Frontier implements AutoCloseable {
                             }
                         });
     }
+
+    ScheduledExecutorService x = Executors.newScheduledThreadPool(1);
 
     public CrawlExecutionStatus scheduleSeed(CrawlSeedRequest request) throws DbException {
         // Create execution
@@ -123,6 +129,19 @@ public class Frontier implements AutoCloseable {
                     .setEndState(CrawlExecutionStatus.State.FAILED)
                     .setError(ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError(ex.toString()))
                     .saveStatus();
+        }
+
+        OffsetDateTime timeout = null;
+        if (request.hasTimeout()) {
+            timeout = ProtoUtils.tsToOdt(request.getTimeout());
+        } else {
+            long maxDuration = request.getJob().getCrawlJob().getLimits().getMaxDurationS();
+            if (maxDuration > 0) {
+                timeout = ProtoUtils.tsToOdt(status.getCreatedTime()).plus(maxDuration, ChronoUnit.SECONDS);
+            }
+        }
+        if (timeout != null) {
+            getCrawlQueueManager().scheduleCrawlExecutionTimeout(status.getId(), timeout);
         }
 
         return status.getCrawlExecutionStatus();

@@ -6,4 +6,4 @@
 ---
 
 redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
-return redis.call('HGETALL', KEYS[2])
+return redis.call('GET', KEYS[2])
