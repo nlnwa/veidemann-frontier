@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.Pipeline;
 
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -54,17 +55,20 @@ public class CrawlQueueWorker {
         @Override
         public void run() {
             try (Jedis jedis = jedisPool.getResource()) {
-                List<String> toBeRemoved = jedis.lrange(CrawlQueueManager.REMOVE_URI_QUEUE_KEY, 0, 4999);
+                List<String> toBeRemoved = jedis.lrange(CrawlQueueManager.REMOVE_URI_QUEUE_KEY, 0, 9999);
                 if (!toBeRemoved.isEmpty()) {
                     // Remove queued uris from DB
                     long deleted = conn.exec("db-deleteQueuedUri",
                             r.table(Tables.URI_QUEUE.name)
                                     .getAll(toBeRemoved.toArray())
-                                    .delete().g("deleted")
+                                    .delete().optArg("durability", "soft")
+                                    .g("deleted")
                     );
+                    Pipeline p = jedis.pipelined();
                     for (String uriId : toBeRemoved) {
-                        jedis.lrem(CrawlQueueManager.REMOVE_URI_QUEUE_KEY, 1, uriId);
+                        p.lrem(CrawlQueueManager.REMOVE_URI_QUEUE_KEY, 1, uriId);
                     }
+                    p.sync();
                     LOG.debug("Deleted {} URIs from crawl queue", deleted);
                 }
             } catch (Throwable t) {
