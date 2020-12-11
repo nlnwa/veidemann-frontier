@@ -88,12 +88,6 @@
         </dependency>
 
         <dependency>
-            <groupId>com.github.nlnwa.webarchive-commons</groupId>
-            <artifactId>webarchive-commons-uri</artifactId>
-            <version>fixIpv4Parser-commons-web-1.0.0-g09014ab-247</version>
-        </dependency>
-
-        <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
             <version>3.3.0</version>
@@ -348,6 +342,7 @@
                                         <portName>dnsresolver.port</portName>
                                         <portName>robotsevaluator.port</portName>
                                         <portName>ooshandler.port</portName>
+                                        <portName>scopeChecker.port</portName>
                                     </portNames>
                                 </configuration>
                             </execution>
@@ -491,6 +486,10 @@
                                             <!--suppress UnresolvedMavenProperty -->
                                             <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
                                             <!--suppress UnresolvedMavenProperty -->
+                                            <SCOPESERVICE_HOST>${local.ip}</SCOPESERVICE_HOST>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <SCOPESERVICE_PORT>${scopeChecker.port}</SCOPESERVICE_PORT>
+                                            <!--suppress UnresolvedMavenProperty -->
                                             <REDIS_HOST>redis</REDIS_HOST>
                                             <!--suppress UnresolvedMavenProperty -->
                                             <REDIS_PORT>6379</REDIS_PORT>
@@ -539,9 +538,14 @@
                                 <robotsevaluator.host>localhost</robotsevaluator.host>
                                 <!--suppress UnresolvedMavenProperty -->
                                 <robotsevaluator.port>${robotsevaluator.port}</robotsevaluator.port>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <ooshandler.host>localhost</ooshandler.host>
                                 <!--suppress UnresolvedMavenProperty -->
                                 <ooshandler.port>${ooshandler.port}</ooshandler.port>
+                                <!--suppress UnresolvedMavenProperty -->
+                                <scopeChecker.host>localhost</scopeChecker.host>
+                                <!--suppress UnresolvedMavenProperty -->
+                                <scopeChecker.port>${scopeChecker.port}</scopeChecker.port>
                             </systemPropertyVariables>
                         </configuration>
                     </plugin>

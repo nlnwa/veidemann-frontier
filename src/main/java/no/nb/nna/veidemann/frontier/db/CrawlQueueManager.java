@@ -23,6 +23,7 @@ import no.nb.nna.veidemann.frontier.db.script.NextUriScript.NextUriScriptResult;
 import no.nb.nna.veidemann.frontier.db.script.RemoveUriScript;
 import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
+import no.nb.nna.veidemann.frontier.worker.QueuedUriWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
@@ -219,9 +220,9 @@ public class CrawlQueueManager {
      * @param qu the uri to check
      * @return true if the uri is not seen for the JobExecution
      */
-    public boolean uriNotIncludedInQueue(QueuedUri qu) {
+    public boolean uriNotIncludedInQueue(QueuedUriWrapper qu) {
         String jobExecutionId = qu.getJobExecutionId();
-        String uriHash = uriHash(qu.getSurt());
+        String uriHash = uriHash(qu.getIncludedCheckUri());
         try (Jedis jedis = jedisPool.getResource()) {
             return jedis.sadd(key(jobExecutionId), uriHash) == 1;
         }

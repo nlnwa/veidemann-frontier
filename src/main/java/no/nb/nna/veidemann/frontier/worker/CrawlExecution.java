@@ -19,8 +19,11 @@ import io.opentracing.Span;
 import io.opentracing.tag.Tags;
 import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.commons.v1.Error;
+import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
+import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
+import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
@@ -35,6 +38,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import java.net.URISyntaxException;
+import java.util.Collection;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -49,6 +53,8 @@ public class CrawlExecution {
 
     final Frontier frontier;
 
+    final ConfigObject jobConfig;
+
     final ConfigObject crawlConfig;
 
     final ConfigObject politenessConfig;
@@ -60,6 +66,8 @@ public class CrawlExecution {
     final QueuedUriWrapper qUri;
 
     final CrawlHostGroup crawlHostGroup;
+
+    final Collection<Annotation> scriptParameters;
 
     private final OutlinkHandler outlinkHandler;
 
@@ -82,11 +90,17 @@ public class CrawlExecution {
 
     public CrawlExecution(QueuedUri queuedUri, CrawlHostGroup crawlHostGroup, Frontier frontier) throws DbException {
         this.status = StatusWrapper.getStatusWrapper(frontier, queuedUri.getExecutionId());
-        ConfigObject job = frontier.getConfig(status.getJobId());
-        this.crawlConfig = frontier.getConfig(job.getCrawlJob().getCrawlConfigRef());
+        this.jobConfig = frontier.getConfig(status.getJobId());
+        this.crawlConfig = frontier.getConfig(jobConfig.getCrawlJob().getCrawlConfigRef());
         this.collectionConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getCollectionRef());
+        ConfigObject seed = frontier.getConfig(ConfigRef.newBuilder()
+                .setKind(Kind.seed).setId(status.getCrawlExecutionStatus().getSeedId())
+                .build());
+        this.scriptParameters = frontier.getScriptParameterResolver().GetScriptParameters(seed, jobConfig);
         try {
-            this.qUri = QueuedUriWrapper.getQueuedUriWrapper(frontier, queuedUri, collectionConfig.getMeta().getName()).clearError();
+            this.qUri = QueuedUriWrapper.getQueuedUriWrapper(frontier, queuedUri, collectionConfig.getMeta().getName(),
+                    scriptParameters, jobConfig.getCrawlJob().getScopeScriptRef())
+                    .clearError();
         } catch (URISyntaxException ex) {
             throw new RuntimeException(ex);
         }
@@ -95,7 +109,7 @@ public class CrawlExecution {
         this.crawlHostGroup = crawlHostGroup;
         this.frontier = frontier;
         this.politenessConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
-        this.limits = job.getCrawlJob().getLimits();
+        this.limits = jobConfig.getCrawlJob().getLimits();
         this.outlinkHandler = new OutlinkHandler(this);
     }
 
@@ -162,8 +176,12 @@ public class CrawlExecution {
                     case RETRY:
                         qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
                         frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
-                        uriAdded = true;
-                        qUri.addUriToQueue();
+                        if (qUri.forceAddUriToQueue(status)) {
+                            uriAdded = true;
+                        } else if (frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
+                            // No URIs in queue; mark crawl as finished
+                            endCrawl(CrawlExecutionStatus.State.FINISHED);
+                        }
                         return null;
                     case OK:
                         // IP resolution done, requeue to account for politeness
@@ -292,7 +310,14 @@ public class CrawlExecution {
     }
 
     public void queueOutlink(QueuedUri outlink) throws DbException {
-        if (outlinkHandler.processOutlink(frontier, outlink)) {
+        String canonicalizedUri = frontier.getScopeServiceClient().canonicalize(outlink.getUri());
+        outlink = outlink.toBuilder()
+                .setUri(canonicalizedUri)
+                .setSeedUri(qUri.getSeedUri())
+                .build();
+
+        if (outlinkHandler.processOutlink(frontier, outlink, scriptParameters,
+                jobConfig.getCrawlJob().getScopeScriptRef())) {
             uriAdded = true;
         }
     }
@@ -341,8 +366,9 @@ public class CrawlExecution {
                 LOG.info("Failed fetching ({}) at attempt #{}, retrying in {} seconds", qUri, qUri.getRetries(), politenessConfig.getPolitenessConfig().getRetryDelaySeconds());
                 qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
                 frontier.getCrawlQueueManager().removeQUri(oldUri, crawlHostGroup.getId(), false);
-                uriAdded = true;
-                qUri.addUriToQueue();
+                if (qUri.forceAddUriToQueue(status)) {
+                    uriAdded = true;
+                }
             }
         } else {
             LOG.info("Failed fetching ({}). URI will not be retried", qUri);

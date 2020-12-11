@@ -18,7 +18,6 @@ package no.nb.nna.veidemann.frontier;
 
 import com.google.protobuf.Timestamp;
 import com.rethinkdb.RethinkDB;
-import no.nb.nna.veidemann.api.config.v1.CrawlScope;
 import no.nb.nna.veidemann.api.frontier.v1.Cookie;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
@@ -77,7 +76,7 @@ public class CrawlExecutionsIT {
 
         executionsAdapter = (RethinkDbExecutionsAdapter) DbService.getInstance().getExecutionsAdapter();
         conn = ((RethinkDbInitializer) DbService.getInstance().getDbInitializer()).getDbConnection();
-        frontier = new Frontier(new JedisPool(redisHost, redisPort), null, null, null);
+        frontier = new Frontier(new JedisPool(redisHost, redisPort), null, null, null, null);
     }
 
     @AfterClass
@@ -101,8 +100,7 @@ public class CrawlExecutionsIT {
     @Test
     public void createCrawlExecutionStatus() throws DbException {
         JobExecutionStatus jes1 = executionsAdapter.createJobExecutionStatus("jobId1");
-        CrawlExecutionStatus ces1 = frontier.createCrawlExecutionStatus(
-                "jobId1", jes1.getId(), "seed1", CrawlScope.getDefaultInstance());
+        CrawlExecutionStatus ces1 = frontier.createCrawlExecutionStatus("jobId1", jes1.getId(), "seed1");
         assertThat(ces1.getId()).isNotEmpty();
         assertThat(ces1.getJobId()).isEqualTo("jobId1");
         assertThat(ces1.getJobExecutionId()).isEqualTo(jes1.getId());
@@ -125,8 +123,7 @@ public class CrawlExecutionsIT {
     @Test
     public void updateCrawlExecutionStatus() throws DbException {
         JobExecutionStatus jes1 = executionsAdapter.createJobExecutionStatus("jobId1");
-        CrawlExecutionStatus ces1 = frontier.createCrawlExecutionStatus(
-                "jobId1", jes1.getId(), "seed1", CrawlScope.getDefaultInstance());
+        CrawlExecutionStatus ces1 = frontier.createCrawlExecutionStatus("jobId1", jes1.getId(), "seed1");
 
         StatusWrapper.getStatusWrapper(frontier, ces1)
                 .incrementDocumentsCrawled()
@@ -410,8 +407,7 @@ public class CrawlExecutionsIT {
         assertThat(jesRes.getUrisCrawled()).isEqualTo(7);
         assertThat(jesRes.getBytesCrawled()).isEqualTo(8);
 
-        CrawlExecutionStatus ces2 = frontier.createCrawlExecutionStatus(
-                "jobId1", jes1.getId(), "seed1", CrawlScope.getDefaultInstance());
+        CrawlExecutionStatus ces2 = frontier.createCrawlExecutionStatus("jobId1", jes1.getId(), "seed1");
         StatusWrapper.getStatusWrapper(frontier, ces2)
                 .setState(CrawlExecutionStatus.State.FINISHED)
                 .saveStatus();

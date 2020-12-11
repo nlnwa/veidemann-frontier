@@ -34,6 +34,10 @@ public class Settings extends CommonSettings {
 
     private int dnsResolverPort;
 
+    private String scopeserviceHost;
+
+    private int scopeservicePort;
+
     private String outOfScopeHandlerHost;
 
     private int outOfScopeHandlerPort;
@@ -92,6 +96,22 @@ public class Settings extends CommonSettings {
 
     public void setDnsResolverPort(int dnsResolverPort) {
         this.dnsResolverPort = dnsResolverPort;
+    }
+
+    public String getScopeserviceHost() {
+        return scopeserviceHost;
+    }
+
+    public void setScopeserviceHost(String scopeserviceHost) {
+        this.scopeserviceHost = scopeserviceHost;
+    }
+
+    public int getScopeservicePort() {
+        return scopeservicePort;
+    }
+
+    public void setScopeservicePort(int scopeservicePort) {
+        this.scopeservicePort = scopeservicePort;
     }
 
     public String getOutOfScopeHandlerHost() {

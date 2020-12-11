@@ -22,9 +22,9 @@ import com.rethinkdb.RethinkDB;
 import com.rethinkdb.gen.ast.Insert;
 import com.rethinkdb.model.MapObject;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
+import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
-import no.nb.nna.veidemann.api.config.v1.CrawlScope;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
@@ -48,6 +48,7 @@ import redis.clients.jedis.JedisPool;
 import java.net.URISyntaxException;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
@@ -66,21 +67,27 @@ public class Frontier implements AutoCloseable {
 
     private final DnsServiceClient dnsServiceClient;
 
-    private final ScopeCheck scopeChecker;
+    private final ScopeServiceClient scopeServiceClient;
+
+    private final OutOfScopeHandlerClient outOfScopeHandlerClient;
 
     private final CrawlQueueManager crawlQueueManager;
 
     private final LoadingCache<ConfigRef, ConfigObject> configCache;
 
+    private final ScriptParameterResolver scriptParameterResolver;
+
     private final JedisPool jedisPool;
     final RethinkDbConnection conn;
     static final RethinkDB r = RethinkDB.r;
 
-    public Frontier(JedisPool jedisPool, RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient) {
+    public Frontier(JedisPool jedisPool, RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient,
+                    ScopeServiceClient scopeServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient) {
         this.jedisPool = jedisPool;
         this.robotsServiceClient = robotsServiceClient;
         this.dnsServiceClient = dnsServiceClient;
-        this.scopeChecker = new ScopeCheck(outOfScopeHandlerClient);
+        this.scopeServiceClient = scopeServiceClient;
+        this.outOfScopeHandlerClient = outOfScopeHandlerClient;
         conn = ((RethinkDbInitializer) DbService.getInstance().getDbInitializer()).getDbConnection();
         this.crawlQueueManager = new CrawlQueueManager(this, conn, jedisPool);
 
@@ -93,6 +100,7 @@ public class Frontier implements AutoCloseable {
                                         .getConfigObject(key);
                             }
                         });
+        scriptParameterResolver = new ScriptParameterResolver(this);
     }
 
     ScheduledExecutorService x = Executors.newScheduledThreadPool(1);
@@ -103,22 +111,31 @@ public class Frontier implements AutoCloseable {
                 createCrawlExecutionStatus(
                         request.getJob().getId(),
                         request.getJobExecutionId(),
-                        request.getSeed().getId(),
-                        request.getSeed().getSeed().getScope()));
+                        request.getSeed().getId()));
 
         LOG.debug("New crawl execution: " + status.getId());
 
         String uri = request.getSeed().getMeta().getName();
 
         try {
+            Collection<Annotation> scriptParameters = getScriptParameterResolver().GetScriptParameters(request.getSeed(), request.getJob());
             ConfigObject crawlConfig = getConfig(request.getJob().getCrawlJob().getCrawlConfigRef());
             ConfigObject collectionConfig = getConfig(crawlConfig.getCrawlConfig().getCollectionRef());
-            QueuedUriWrapper qUri = QueuedUriWrapper.getQueuedUriWrapper(this, uri, request.getJobExecutionId(),
-                    status.getId(), crawlConfig.getCrawlConfig().getPolitenessRef(), collectionConfig.getMeta().getName());
+            QueuedUriWrapper qUri = QueuedUriWrapper.createSeedQueuedUri(this, uri, request.getJobExecutionId(),
+                    status.getId(), crawlConfig.getCrawlConfig().getPolitenessRef(), collectionConfig.getMeta().getName(),
+                    scriptParameters, request.getJob().getCrawlJob().getScopeScriptRef());
             qUri.setPriorityWeight(crawlConfig.getCrawlConfig().getPriorityWeight());
-            getCrawlQueueManager().uriNotIncludedInQueue(qUri.getQueuedUri());
-            qUri.addUriToQueue();
-            LOG.debug("Seed '{}' added to queue", qUri.getUri());
+            boolean wasAdded = qUri.addUriToQueue(status);
+            if (wasAdded) {
+                LOG.debug("Seed '{}' added to queue", qUri.getUri());
+            } else {
+                LOG.warn("Seed could not be crawled. Status: {}, Error: {}", qUri.getExcludedReasonStatusCode(), qUri.getError());
+                status.setEndState(CrawlExecutionStatus.State.FAILED);
+                if (qUri.hasError()) {
+                    status.setError(qUri.getError());
+                }
+                status.saveStatus();
+            }
         } catch (URISyntaxException ex) {
             status.incrementDocumentsFailed()
                     .setEndState(CrawlExecutionStatus.State.FAILED)
@@ -155,25 +172,31 @@ public class Frontier implements AutoCloseable {
         return dnsServiceClient;
     }
 
-    public ScopeCheck getScopeChecker() {
-        return scopeChecker;
-    }
-
     public CrawlQueueManager getCrawlQueueManager() {
         return crawlQueueManager;
     }
 
-    public CrawlExecutionStatus createCrawlExecutionStatus(String jobId, String jobExecutionId, String seedId, CrawlScope scope) throws DbException {
+    public ScopeServiceClient getScopeServiceClient() {
+        return scopeServiceClient;
+    }
+
+    public OutOfScopeHandlerClient getOutOfScopeHandlerClient() {
+        return outOfScopeHandlerClient;
+    }
+
+    public ScriptParameterResolver getScriptParameterResolver() {
+        return scriptParameterResolver;
+    }
+
+    public CrawlExecutionStatus createCrawlExecutionStatus(String jobId, String jobExecutionId, String seedId) throws DbException {
         Objects.requireNonNull(jobId, "jobId must be set");
         Objects.requireNonNull(jobExecutionId, "jobExecutionId must be set");
         Objects.requireNonNull(seedId, "seedId must be set");
-        Objects.requireNonNull(scope, "crawl scope must be set");
 
         CrawlExecutionStatus status = CrawlExecutionStatus.newBuilder()
                 .setJobId(jobId)
                 .setJobExecutionId(jobExecutionId)
                 .setSeedId(seedId)
-                .setScope(scope)
                 .setState(CrawlExecutionStatus.State.CREATED)
                 .build();
 

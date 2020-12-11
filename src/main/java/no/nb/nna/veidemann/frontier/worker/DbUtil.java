@@ -35,7 +35,6 @@ public class DbUtil {
                 .setExecutionId(qUri.getExecutionId())
                 .setDiscoveryPath(qUri.getDiscoveryPath())
                 .setReferrer(qUri.getReferrer())
-                .setSurt(qUri.getSurt())
                 .setRecordType("response")
                 .setStatusCode(statusCode)
                 .setError(qUri.getError())

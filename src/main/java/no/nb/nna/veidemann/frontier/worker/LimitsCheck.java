@@ -36,25 +36,6 @@ public class LimitsCheck {
     }
 
     /**
-     * Checks that a URI which is about to be queued is within the limits required.
-     *
-     * @param limits the limits configuration
-     * @param status the status object which might be updated by this method
-     * @param qUri   the URI to check
-     * @return true if the submitted URI is within limits for queueing
-     */
-    public static boolean isQueueable(CrawlLimitsConfig limits, StatusWrapper status,
-                                      QueuedUriWrapper qUri) {
-
-        if (limits.getDepth() > 0 && limits.getDepth() <= calculateDepth(qUri)) {
-            LOG.debug("Maximum configured depth reached for: {}, skipping.", qUri.getSurt());
-            status.incrementDocumentsDenied(1L);
-            return false;
-        }
-        return true;
-    }
-
-    /**
      * Checks that should be run after fetching a URI to see if the limits for crawling are reached.
      *
      * @param frontier the frontier
@@ -106,10 +87,4 @@ public class LimitsCheck {
             return true;
         }
     }
-
-    private static int calculateDepth(QueuedUriWrapper qUri) {
-        // Remove redirects from discovery path before calculating depth
-        return qUri.getDiscoveryPath().replace("R", "").length();
-    }
-
 }

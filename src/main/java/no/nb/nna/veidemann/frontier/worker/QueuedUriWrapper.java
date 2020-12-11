@@ -22,25 +22,27 @@ import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Durations;
 import com.google.protobuf.util.Timestamps;
 import no.nb.nna.veidemann.api.commons.v1.Error;
+import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.config.v1.ListRequest;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUriOrBuilder;
-import no.nb.nna.veidemann.commons.ExtraStatusCodes;
+import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckRequest;
+import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse;
+import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse.Evaluation;
 import no.nb.nna.veidemann.commons.db.ChangeFeed;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.util.ApiTools;
 import no.nb.nna.veidemann.db.ProtoUtils;
-import org.netpreserve.commons.uri.Uri;
-import org.netpreserve.commons.uri.UriConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
@@ -56,9 +58,11 @@ public class QueuedUriWrapper {
 
     private QueuedUri.Builder wrapped;
 
-    private Uri surt;
-
+    private final String host;
+    private final int port;
     private final String collectionName;
+    private final String includedCheckUri;
+    private final ScopeCheckResponse scopeCheckResponse;
 
     final Frontier frontier;
 
@@ -75,10 +79,12 @@ public class QueuedUriWrapper {
                                 }
                             }
                         });
-
     }
 
-    private QueuedUriWrapper(Frontier frontier, QueuedUriOrBuilder uri, String collectionName) throws URISyntaxException, DbException {
+    private QueuedUriWrapper(
+            Frontier frontier, QueuedUriOrBuilder uri, String collectionName, Collection<Annotation> scriptParameters,
+            ConfigRef scopeScriptRef) throws URISyntaxException, DbException {
+
         this.frontier = frontier;
         this.collectionName = collectionName;
         if (uri instanceof QueuedUri.Builder) {
@@ -86,49 +92,127 @@ public class QueuedUriWrapper {
         } else {
             wrapped = ((QueuedUri) uri).toBuilder();
         }
-        if (wrapped.getSurt().isEmpty()) {
-            createSurt();
-        }
+        wrapped.addAllAnnotation(scriptParameters);
+        ConfigObject script = frontier.getConfig(scopeScriptRef);
+
+        ScopeCheckRequest scopeCheckRequest = ScopeCheckRequest.newBuilder()
+                .setScopeScriptName(script.getMeta().getName())
+                .setScopeScript(script.getBrowserScript().getScript())
+                .setDebug(false)
+                .setQueuedUri(wrapped.build())
+                .build();
+        LOG.trace("Scope check request: {}", scopeCheckRequest);
+        scopeCheckResponse = frontier.getScopeServiceClient().scopeCheck(scopeCheckRequest);
+        LOG.trace("Scope check response: {}", scopeCheckResponse);
+        includedCheckUri = scopeCheckResponse.getIncludeCheckUri().getHref();
+        host = scopeCheckResponse.getIncludeCheckUri().getHost();
+        port = scopeCheckResponse.getIncludeCheckUri().getPort();
     }
 
-    public static QueuedUriWrapper getQueuedUriWrapper(Frontier frontier, QueuedUri qUri, String collectionName) throws URISyntaxException, DbException {
+    public static QueuedUriWrapper getQueuedUriWrapper(
+            Frontier frontier, QueuedUri qUri, String collectionName,
+            Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef) throws URISyntaxException, DbException {
+
         requireNonEmpty(qUri.getUri(), "Empty URI string");
         requireNonEmpty(qUri.getJobExecutionId(), "Empty JobExecutionId");
         requireNonEmpty(qUri.getExecutionId(), "Empty ExecutionId");
         requireNonEmpty(qUri.getPolitenessRef(), "Empty PolitenessRef");
 
-        return new QueuedUriWrapper(frontier, qUri, collectionName);
+        return new QueuedUriWrapper(frontier, qUri, collectionName, scriptParameters, scopeScriptRef);
     }
 
-    public static QueuedUriWrapper getQueuedUriWrapper(Frontier frontier, QueuedUriWrapper parentUri, QueuedUri qUri, String collectionName) throws URISyntaxException, DbException {
+    public static QueuedUriWrapper getOutlinkQueuedUriWrapper(
+            Frontier frontier, QueuedUriWrapper parentUri, QueuedUri qUri, String collectionName,
+            Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef) throws URISyntaxException, DbException {
+
         requireNonEmpty(qUri.getUri(), "Empty URI string");
         requireNonEmpty(parentUri.getJobExecutionId(), "Empty JobExecutionId");
         requireNonEmpty(parentUri.getExecutionId(), "Empty ExecutionId");
         requireNonEmpty(parentUri.getPolitenessRef(), "Empty PolitenessRef");
+        requireNonEmpty(parentUri.getSeedUri(), "Empty SeedUri");
 
-        QueuedUriWrapper wrapper = new QueuedUriWrapper(frontier, qUri, collectionName)
+        qUri = qUri.toBuilder()
+                .setSeedUri(parentUri.getSeedUri())
                 .setJobExecutionId(parentUri.getJobExecutionId())
                 .setExecutionId(parentUri.getExecutionId())
-                .setPolitenessRef(parentUri.getPolitenessRef());
+                .setPolitenessRef(parentUri.getPolitenessRef())
+                .build();
+
+        QueuedUriWrapper wrapper = new QueuedUriWrapper(frontier, qUri, collectionName, scriptParameters, scopeScriptRef);
         wrapper.wrapped.setUnresolved(true);
 
         return wrapper;
     }
 
-    public static QueuedUriWrapper getQueuedUriWrapper(Frontier frontier, String uri, String jobExecutionId, String executionId, ConfigRef politenessId, String collectionName)
+    public static QueuedUriWrapper createSeedQueuedUri(
+            Frontier frontier, String uri, String jobExecutionId, String executionId, ConfigRef politenessId,
+            String collectionName, Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef)
             throws URISyntaxException, DbException {
+
         return new QueuedUriWrapper(frontier, QueuedUri.newBuilder()
                 .setUri(uri)
+                .setSeedUri(uri)
                 .setJobExecutionId(jobExecutionId)
                 .setExecutionId(executionId)
                 .setPolitenessRef(politenessId)
                 .setUnresolved(true)
                 .setSequence(1L),
-                collectionName
+                collectionName,
+                scriptParameters,
+                scopeScriptRef
         );
     }
 
-    public QueuedUriWrapper addUriToQueue() throws DbException {
+    public String getIncludedCheckUri() {
+        return includedCheckUri;
+    }
+
+    public boolean shouldInclude() {
+        return scopeCheckResponse.getEvaluation() == Evaluation.INCLUDE;
+    }
+
+    public int getExcludedReasonStatusCode() {
+        if (shouldInclude()) {
+            throw new IllegalStateException("Exclude reason called on uri which was eligible for inclusion");
+        }
+        return scopeCheckResponse.getExcludeReason();
+    }
+
+    public Error getExcludedError() {
+        if (shouldInclude()) {
+            throw new IllegalStateException("Exclude reason called on uri which was eligible for inclusion");
+        }
+        return scopeCheckResponse.getError();
+    }
+
+    public boolean addUriToQueue(StatusWrapper status) throws DbException {
+        if (frontier.getCrawlQueueManager().uriNotIncludedInQueue(this)) {
+            return forceAddUriToQueue(status);
+        }
+        LOG.debug("Found already included URI: {}, skipping.", getUri());
+        return false;
+    }
+
+    /**
+     * Adds Uri to queue without checking if it is already included. Scope check is applied though,
+     *
+     * @return
+     * @throws DbException
+     */
+    public boolean forceAddUriToQueue(StatusWrapper status) throws DbException {
+        if (!shouldInclude()) {
+            LOG.debug("URI '{}' is out of scope, skipping.", getUri());
+            if (scopeCheckResponse.hasError()) {
+                setError(scopeCheckResponse.getError());
+                DbUtil.writeLog(this);
+            } else {
+                DbUtil.writeLog(this, scopeCheckResponse.getExcludeReason());
+            }
+            status.incrementDocumentsOutOfScope();
+            frontier.getOutOfScopeHandlerClient().submitUri(getQueuedUri());
+            return false;
+        }
+
         requireNonEmpty(wrapped.getUri(), "Empty URI string");
         requireNonEmpty(wrapped.getJobExecutionId(), "Empty JobExecutionId");
         requireNonEmpty(wrapped.getExecutionId(), "Empty ExecutionId");
@@ -147,47 +231,43 @@ public class QueuedUriWrapper {
         }
 
         if (wrapped.getUnresolved() && wrapped.getCrawlHostGroupId().isEmpty()) {
-            wrapped.setCrawlHostGroupId("TEMP_CHG_" + ApiTools.createSha1Digest(surt.getDecodedHost()));
+            wrapped.setCrawlHostGroupId("TEMP_CHG_" + ApiTools.createSha1Digest(getHost()));
         }
         requireNonEmpty(wrapped.getCrawlHostGroupId(), "Empty CrawlHostGroupId");
+
+        // Annotations are dynamic and should not be stored in DB
+        wrapped.clearAnnotation();
 
         QueuedUri q = wrapped.build();
         q = frontier.getCrawlQueueManager().addToCrawlHostGroup(q);
         wrapped = q.toBuilder();
 
-        return this;
-    }
-
-    public Uri getParsedSurt() {
-        return surt;
-    }
-
-    private void createSurt() throws URISyntaxException, DbException {
-        LOG.debug("Parse URI '{}'", wrapped.getUri());
-        try {
-            surt = UriConfigs.SURT_KEY.buildUri(wrapped.getUri());
-            wrapped.setSurt(surt.toString());
-        } catch (Exception t) {
-            LOG.info("Unparseable URI '{}'", wrapped.getUri());
-            wrapped = wrapped.setError(ExtraStatusCodes.ILLEGAL_URI.toFetchError());
-            DbUtil.writeLog(this);
-            throw new URISyntaxException(wrapped.getUri(), t.getMessage());
-        }
+        return true;
     }
 
     public String getHost() {
-        return UriConfigs.WHATWG.buildUri(wrapped.getUri()).getHost();
+        return host;
     }
 
     public int getPort() {
-        if (surt == null) {
-            surt = UriConfigs.SURT_KEY.buildUri(wrapped.getUri());
-        }
-        return surt.getDecodedPort();
+        return port;
     }
 
     public String getUri() {
         return wrapped.getUri();
+    }
+
+    public String getSeedUri() {
+        return wrapped.getSeedUri();
+    }
+
+    public QueuedUriWrapper setSeedUri(String seedUri) {
+        wrapped.setSeedUri(seedUri);
+        return this;
+    }
+
+    public List<Annotation> getAnnotationList() {
+        return wrapped.getAnnotationList();
     }
 
     public String getIp() {
@@ -241,10 +321,6 @@ public class QueuedUriWrapper {
 
     String getReferrer() {
         return wrapped.getReferrer();
-    }
-
-    String getSurt() {
-        return wrapped.getSurt();
     }
 
     boolean hasError() {
