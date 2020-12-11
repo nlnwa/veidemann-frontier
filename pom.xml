@@ -26,9 +26,9 @@
         <maven.compiler.target>11</maven.compiler.target>
         <docker.tag>${project.version}</docker.tag>
 
-        <veidemann.api.version>1.0.0-beta19</veidemann.api.version>
-        <veidemann.commons.version>0.4.8</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.4.14</veidemann.rethinkdbadapter.version>
+        <veidemann.api.version>1.0.0-beta20</veidemann.api.version>
+        <veidemann.commons.version>0.4.9</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.5.0</veidemann.rethinkdbadapter.version>
 
         <log4j.version>2.13.3</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
@@ -85,12 +85,6 @@
                     <artifactId>webarchive-commons</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
-
-        <dependency>
-            <groupId>com.github.nlnwa.webarchive-commons</groupId>
-            <artifactId>webarchive-commons-uri</artifactId>
-            <version>fixIpv4Parser-commons-web-1.0.0-g09014ab-247</version>
         </dependency>
 
         <dependency>
@@ -348,6 +342,7 @@
                                         <portName>dnsresolver.port</portName>
                                         <portName>robotsevaluator.port</portName>
                                         <portName>ooshandler.port</portName>
+                                        <portName>scopeChecker.port</portName>
                                     </portNames>
                                 </configuration>
                             </execution>
@@ -491,6 +486,10 @@
                                             <!--suppress UnresolvedMavenProperty -->
                                             <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
                                             <!--suppress UnresolvedMavenProperty -->
+                                            <SCOPESERVICE_HOST>${local.ip}</SCOPESERVICE_HOST>
+                                            <!--suppress UnresolvedMavenProperty -->
+                                            <SCOPESERVICE_PORT>${scopeChecker.port}</SCOPESERVICE_PORT>
+                                            <!--suppress UnresolvedMavenProperty -->
                                             <REDIS_HOST>redis</REDIS_HOST>
                                             <!--suppress UnresolvedMavenProperty -->
                                             <REDIS_PORT>6379</REDIS_PORT>
@@ -539,9 +538,14 @@
                                 <robotsevaluator.host>localhost</robotsevaluator.host>
                                 <!--suppress UnresolvedMavenProperty -->
                                 <robotsevaluator.port>${robotsevaluator.port}</robotsevaluator.port>
+                                <!--suppress UnresolvedMavenProperty -->
                                 <ooshandler.host>localhost</ooshandler.host>
                                 <!--suppress UnresolvedMavenProperty -->
                                 <ooshandler.port>${ooshandler.port}</ooshandler.port>
+                                <!--suppress UnresolvedMavenProperty -->
+                                <scopeChecker.host>localhost</scopeChecker.host>
+                                <!--suppress UnresolvedMavenProperty -->
+                                <scopeChecker.port>${scopeChecker.port}</scopeChecker.port>
                             </systemPropertyVariables>
                         </configuration>
                     </plugin>

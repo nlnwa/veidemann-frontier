@@ -53,6 +53,10 @@ public class FrontierServiceTestIT {
 
     static int frontierPort;
 
+    static String scopeCheckerHost;
+
+    static int scopeCheckerPort;
+
     static ManagedChannel frontierChannel;
 
     static FrontierGrpc.FrontierBlockingStub frontierStub;
@@ -76,11 +80,15 @@ public class FrontierServiceTestIT {
         frontierHost = System.getProperty("frontier.host");
         frontierPort = Integer.parseInt(System.getProperty("frontier.port"));
 
+        scopeCheckerHost = System.getProperty("scopeChecker.host");
+        scopeCheckerPort = Integer.parseInt(System.getProperty("scopeChecker.port"));
+
         System.out.println("      DB: " + dbHost + ":" + dbPort);
         System.out.println("     DNS: " + dnsresolverHost + ":" + dnsresolverPort);
         System.out.println("  ROBOTS: " + robotsevaluatorHost + ":" + robotsevaluatorPort);
         System.out.println("     OOS: " + ooshandlerHost + ":" + ooshandlerPort);
         System.out.println("FRONTIER: " + frontierHost + ":" + frontierPort);
+        System.out.println("   SCOPE: " + scopeCheckerHost + ":" + scopeCheckerPort);
 
         if (!DbService.isConfigured()) {
             CommonSettings dbSettings = new CommonSettings()
@@ -110,6 +118,8 @@ public class FrontierServiceTestIT {
         outOfScopeHandlerMock.start();
         HarvesterMock harvesterMock = new HarvesterMock(frontierAsyncStub);
         harvesterMock.start();
+        ScopeCheckerServiceMock scopeCheckerServiceMock = new ScopeCheckerServiceMock(scopeCheckerPort);
+        scopeCheckerServiceMock.start();
 
         JobExecutionStatus jes = c.runCrawl(frontierStub);
 

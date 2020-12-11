@@ -22,7 +22,6 @@ import com.rethinkdb.gen.ast.Update;
 import com.rethinkdb.model.MapObject;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
-import no.nb.nna.veidemann.api.config.v1.CrawlScope;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
@@ -209,10 +208,6 @@ public class StatusWrapper {
 
     public boolean isEnded() {
         return getCrawlExecutionStatus().hasEndTime();
-    }
-
-    public CrawlScope getScope() {
-        return status.getScope();
     }
 
     public CrawlExecutionStatus.State getState() {

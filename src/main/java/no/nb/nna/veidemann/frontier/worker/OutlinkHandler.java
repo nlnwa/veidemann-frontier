@@ -16,28 +16,20 @@
 
 package no.nb.nna.veidemann.frontier.worker;
 
+import no.nb.nna.veidemann.api.config.v1.Annotation;
+import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.frontier.worker.Preconditions.PreconditionState;
-import org.netpreserve.commons.uri.UriFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
+import java.util.Collection;
 
 public class OutlinkHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(OutlinkHandler.class);
-
-    public static final UriFormat SURT_HOST_FORMAT = new UriFormat()
-            .surtEncoding(true)
-            .ignoreScheme(true)
-            .ignoreUser(true)
-            .ignorePassword(true)
-            .ignorePath(true)
-            .ignoreQuery(true)
-            .ignoreFragment(true)
-            .decodeHost(true);
 
     private final CrawlExecution crawlExecution;
 
@@ -47,33 +39,39 @@ public class OutlinkHandler {
 
     /**
      * Check if outlink is in scope for crawling and eventually add it to queue.
+     *
      * @param frontier
-     * @param outlink the outlink to evaluate
+     * @param outlink  the outlink to evaluate
      * @return true if outlink was added to queue
      * @throws DbException
      */
-    public boolean processOutlink(Frontier frontier, QueuedUri outlink) throws DbException {
+    public boolean processOutlink(
+            Frontier frontier, QueuedUri outlink, Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef)
+            throws DbException {
+
         boolean wasQueued = false;
         try {
-            QueuedUriWrapper outUri = QueuedUriWrapper.getQueuedUriWrapper(frontier, crawlExecution.qUri, outlink,
-                    crawlExecution.collectionConfig.getMeta().getName());
-            if (shouldInclude(outUri) && uriNotIncludedInQueue(outUri)) {
+            QueuedUriWrapper outUri = QueuedUriWrapper.getOutlinkQueuedUriWrapper(frontier, crawlExecution.qUri, outlink,
+                    crawlExecution.collectionConfig.getMeta().getName(), scriptParameters, scopeScriptRef);
+            if (outUri.shouldInclude()) {
                 outUri.setSequence(outUri.getDiscoveryPath().length());
 
                 PreconditionState check = Preconditions.checkPreconditions(crawlExecution.frontier,
                         crawlExecution.crawlConfig, crawlExecution.status, outUri);
                 switch (check) {
                     case OK:
-                        LOG.debug("Found new URI: {}, queueing.", outUri.getSurt());
+                        LOG.debug("Found new URI: {}, queueing.", outUri.getUri());
                         outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
-                        outUri.addUriToQueue();
-                        wasQueued = true;
+                        if (outUri.addUriToQueue(crawlExecution.status)) {
+                            wasQueued = true;
+                        }
                         break;
                     case RETRY:
-                        LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getSurt());
+                        LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getUri());
                         outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
-                        outUri.addUriToQueue();
-                        wasQueued = true;
+                        if (outUri.addUriToQueue(crawlExecution.status)) {
+                            wasQueued = true;
+                        }
                         break;
                     case FAIL:
                     case DENIED:
@@ -85,27 +83,5 @@ public class OutlinkHandler {
             LOG.info("Illegal URI {}", ex);
         }
         return wasQueued;
-    }
-
-    private boolean shouldInclude(QueuedUriWrapper outlink) throws DbException {
-        if (!LimitsCheck.isQueueable(crawlExecution.limits, crawlExecution.status, outlink)) {
-            return false;
-        }
-
-        if (!crawlExecution.frontier.getScopeChecker().isInScope(crawlExecution.status, outlink)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private boolean uriNotIncludedInQueue(QueuedUriWrapper outlink) throws DbException {
-        if (outlink.frontier.getCrawlQueueManager()
-                .uriNotIncludedInQueue(outlink.getQueuedUri())) {
-            return true;
-        }
-
-        LOG.debug("Found already included URI: {}, skipping.", outlink.getSurt());
-        return false;
     }
 }

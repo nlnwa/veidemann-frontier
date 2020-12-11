@@ -36,7 +36,7 @@ public class AddUriScript extends RedisJob<Void> {
             String chgpKey = CHG_PREFIX + chgp;
             String weight = String.format("%1.2f", qUri.getPriorityWeight());
             String eid = qUri.getExecutionId();
-            List<String> keys = ImmutableList.of(ueIdKey, uchgKey, chgpKey);
+            List<String> keys = ImmutableList.of(ueIdKey, uchgKey);
             List<String> args = ImmutableList.of(ueIdVal, weight, eid);
 
             addUriScript.runString(jedis, keys, args);

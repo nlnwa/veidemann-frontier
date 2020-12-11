@@ -28,7 +28,6 @@ import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.db.ExecutionsAdapter;
 import no.nb.nna.veidemann.commons.util.ApiTools;
-import no.nb.nna.veidemann.commons.util.CrawlScopes;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,13 +71,20 @@ public class SetupCrawl {
                 .setCollectionRef(ApiTools.refForConfig(collection));
         ConfigObject crawlConfig = c.saveConfigObject(crawlConfigBuilder.build());
 
+        ConfigObject.Builder scopeScriptBuilder = ConfigObject.newBuilder()
+                .setApiVersion("v1")
+                .setKind(Kind.browserScript);
+        scopeScriptBuilder.getMetaBuilder().setName("stress");
+        ConfigObject scopeScript = c.saveConfigObject(scopeScriptBuilder.build());
+
         ConfigObject.Builder crawlJobBuilder = ConfigObject.newBuilder()
                 .setApiVersion("v1")
                 .setKind(Kind.crawlJob);
         crawlJobBuilder.getMetaBuilder().setName("stress");
         crawlJobBuilder.getCrawlJobBuilder()
                 .setCrawlConfigRef(ApiTools.refForConfig(crawlConfig))
-                .getLimitsBuilder().setDepth(2);
+                .setScopeScriptRef(ApiTools.refForConfig(scopeScript))
+                .getLimitsBuilder();//.setDepth(2);
         crawlJob = c.saveConfigObject(crawlJobBuilder.build());
 
         genSeeds(ApiTools.refForConfig(crawlJob), seedCount);
@@ -94,15 +100,13 @@ public class SetupCrawl {
             ConfigObject entity = c.saveConfigObject(entityBuilder.build());
 
             String url = String.format("http://stress-%06d.com", i);
-            String scope = CrawlScopes.generateDomainScope(url);
             ConfigObject.Builder seedBuilder = ConfigObject.newBuilder()
                     .setApiVersion("v1")
                     .setKind(Kind.seed);
             seedBuilder.getMetaBuilder().setName(url);
             seedBuilder.getSeedBuilder()
                     .setEntityRef(ApiTools.refForConfig(entity))
-                    .addJobRef(jobRef)
-                    .getScopeBuilder().setSurtPrefix(scope);
+                    .addJobRef(jobRef);
 
             ConfigObject seed = c.saveConfigObject(seedBuilder.build());
             seeds.add(seed);

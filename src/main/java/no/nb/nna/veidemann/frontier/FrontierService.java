@@ -29,6 +29,7 @@ import no.nb.nna.veidemann.commons.opentracing.TracerFactory;
 import no.nb.nna.veidemann.frontier.api.FrontierApiServer;
 import no.nb.nna.veidemann.frontier.settings.Settings;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
+import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.JedisPool;
@@ -87,10 +88,14 @@ public class FrontierService {
              DnsServiceClient dnsServiceClient = new DnsServiceClient(
                      SETTINGS.getDnsResolverHost(), SETTINGS.getDnsResolverPort());
 
+             ScopeServiceClient scopeServiceClient = new ScopeServiceClient(
+                     SETTINGS.getScopeserviceHost(), SETTINGS.getScopeservicePort());
+
              OutOfScopeHandlerClient outOfScopeHandlerClient = new OutOfScopeHandlerClient(
                      SETTINGS.getOutOfScopeHandlerHost(), SETTINGS.getOutOfScopeHandlerPort());
 
-             Frontier frontier = new Frontier(jedisPool, robotsServiceClient, dnsServiceClient, outOfScopeHandlerClient);
+             Frontier frontier = new Frontier(jedisPool, robotsServiceClient, dnsServiceClient, scopeServiceClient,
+                     outOfScopeHandlerClient);
         ) {
 
             FrontierApiServer apiServer = new FrontierApiServer(SETTINGS.getApiPort(), SETTINGS.getTerminationGracePeriodSeconds(), frontier);
