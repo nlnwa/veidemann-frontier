@@ -15,18 +15,23 @@
  */
 package no.nb.nna.veidemann.frontier.api;
 
+import com.netflix.concurrency.limits.grpc.server.ConcurrencyLimitServerInterceptor;
+import com.netflix.concurrency.limits.grpc.server.GrpcServerLimiterBuilder;
+import com.netflix.concurrency.limits.limit.Gradient2Limit;
+import com.netflix.concurrency.limits.limit.WindowedLimit;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.ServerInterceptors;
 import io.grpc.services.HealthStatusManager;
 import io.opentracing.contrib.ServerTracingInterceptor;
 import io.opentracing.util.GlobalTracer;
+import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -39,7 +44,6 @@ public class FrontierApiServer {
     private static final Logger LOG = LoggerFactory.getLogger(FrontierApiServer.class);
 
     private final Server server;
-    private final ExecutorService threadPool;
     private final ScheduledExecutorService healthCheckerExecutorService;
     private long shutdownTimeoutMillis = 60 * 1000;
     final FrontierService frontierService;
@@ -60,12 +64,23 @@ public class FrontierApiServer {
         health = new HealthStatusManager();
         healthCheckerExecutorService.scheduleAtFixedRate(new HealthChecker(frontier, health), 0, 1, TimeUnit.SECONDS);
 
-        threadPool = Executors.newFixedThreadPool(128);
-        serverBuilder.executor(threadPool);
-
         frontierService = new FrontierService(frontier);
         server = serverBuilder
-                .addService(tracingInterceptor.intercept(frontierService))
+                .addService(ServerInterceptors.intercept(tracingInterceptor.intercept(frontierService),
+                        ConcurrencyLimitServerInterceptor.newBuilder(
+                                new GrpcServerLimiterBuilder()
+                                        .partitionByMethod()
+                                        .partition(FrontierGrpc.getCrawlSeedMethod().getFullMethodName(), 0.9)
+                                        .partition(FrontierGrpc.getGetNextPageMethod().getFullMethodName(), 0.02)
+                                        .partition(FrontierGrpc.getBusyCrawlHostGroupCountMethod().getFullMethodName(), 0.02)
+                                        .partition(FrontierGrpc.getQueueCountForCrawlExecutionMethod().getFullMethodName(), 0.02)
+                                        .partition(FrontierGrpc.getQueueCountForCrawlHostGroupMethod().getFullMethodName(), 0.02)
+                                        .partition(FrontierGrpc.getQueueCountTotalMethod().getFullMethodName(), 0.02)
+                                        .limit(WindowedLimit.newBuilder()
+                                                .build(Gradient2Limit.newBuilder()
+                                                        .build()))
+                                        .build())
+                                .build()))
                 .addService(health.getHealthService())
                 .build();
     }
