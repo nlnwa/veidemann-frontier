@@ -77,6 +77,8 @@ public class OutlinkHandler {
                     case DENIED:
                         break;
                 }
+            } else {
+                outUri.logOutOfScope(crawlExecution.status);
             }
         } catch (URISyntaxException ex) {
             crawlExecution.status.incrementDocumentsFailed();
