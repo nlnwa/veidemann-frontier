@@ -178,6 +178,10 @@ public class QueuedUriWrapper {
         return scopeCheckResponse.getExcludeReason();
     }
 
+    public boolean hasExcludedError() {
+        return scopeCheckResponse != null && scopeCheckResponse.hasError();
+    }
+
     public Error getExcludedError() {
         if (shouldInclude()) {
             throw new IllegalStateException("Exclude reason called on uri which was eligible for inclusion");

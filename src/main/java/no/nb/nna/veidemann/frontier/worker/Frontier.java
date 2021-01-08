@@ -129,7 +129,14 @@ public class Frontier implements AutoCloseable {
             if (wasAdded) {
                 LOG.debug("Seed '{}' added to queue", qUri.getUri());
             } else {
-                LOG.warn("Seed could not be crawled. Status: {}, Error: {}", qUri.getExcludedReasonStatusCode(), qUri.getError());
+                if (qUri.shouldInclude()) {
+                    LOG.warn("Seed could not be crawled. Error: {}", qUri.getError());
+                } else {
+                    LOG.warn("Seed could not be crawled. Status: {}, Error: {}", qUri.getExcludedReasonStatusCode(), qUri.getExcludedError());
+                    if (qUri.hasExcludedError()) {
+                        status.setError(qUri.getExcludedError());
+                    }
+                }
                 status.setEndState(CrawlExecutionStatus.State.FAILED);
                 if (qUri.hasError()) {
                     status.setError(qUri.getError());
