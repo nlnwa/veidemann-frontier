@@ -13,24 +13,22 @@ public class RedisJob<R extends Object> {
     private static final Logger LOG = LoggerFactory.getLogger(RedisJob.class);
 
     final String name;
-    final JedisPool jedisPool;
     AtomicLong runTime = new AtomicLong();
     AtomicLong invocations = new AtomicLong();
     int maxAttempts = 10;
 
-    public RedisJob(JedisPool jedisPool, String name) {
-        this.jedisPool = jedisPool;
+    public RedisJob(String name) {
         this.name = name;
     }
 
-    protected R execute(Function<Jedis, R> job) {
+    protected R execute(JedisContext ctx, Function<Jedis, R> job) {
         int attempts = 0;
 
         while (true) {
-            try (Jedis jedis = jedisPool.getResource()) {
+            try {
                 long start = System.nanoTime();
 
-                R result = job.apply(jedis);
+                R result = job.apply(ctx.getJedis());
 
                 if (LOG.isDebugEnabled()) {
                     runTime.addAndGet(System.nanoTime() - start);
@@ -53,6 +51,38 @@ public class RedisJob<R extends Object> {
                     LOG.error("Failed connecting to Redis. Giving up after {} attempts", attempts, ex);
                     throw ex;
                 }
+            }
+        }
+    }
+
+    /**
+     * Class that wraps a Jedis connection.
+     */
+    public static class JedisContext implements AutoCloseable {
+        private JedisPool jedisPool;
+        private Jedis jedis;
+
+        private JedisContext() {
+        }
+
+        public static JedisContext forPool(JedisPool jedisPool) {
+            JedisContext ctx = new JedisContext();
+            ctx.jedisPool = jedisPool;
+            return ctx;
+        }
+
+        public Jedis getJedis() {
+            if (jedis == null) {
+                Jedis j = jedisPool.getResource();
+                jedis = j;
+            }
+            return jedis;
+        }
+
+        @Override
+        public void close() {
+            if (jedis != null) {
+                jedis.close();
             }
         }
     }

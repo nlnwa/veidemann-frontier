@@ -1,7 +1,6 @@
 package no.nb.nna.veidemann.frontier.db.script;
 
 import com.google.common.collect.ImmutableList;
-import redis.clients.jedis.JedisPool;
 
 import java.util.List;
 
@@ -10,13 +9,13 @@ import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.*;
 public class RemoveUriScript extends RedisJob<Long> {
     final LuaScript removeUriScript;
 
-    public RemoveUriScript(JedisPool jedisPool) {
-        super(jedisPool, "removeUri");
+    public RemoveUriScript() {
+        super("removeUri");
         removeUriScript = new LuaScript("removeuri.lua");
     }
 
-    public long run(String uriId, String chgp, String eid, long sequence, long fetchTime, boolean deleteUri) {
-        return execute(jedis -> {
+    public long run(JedisContext ctx, String uriId, String chgp, String eid, long sequence, long fetchTime, boolean deleteUri) {
+        return execute(ctx, jedis -> {
             if (uriId == null || uriId.isEmpty()) {
                 new RuntimeException("Missing id: " + uriId).printStackTrace();
             }

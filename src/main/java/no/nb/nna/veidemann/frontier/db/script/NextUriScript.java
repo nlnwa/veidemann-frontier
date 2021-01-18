@@ -4,7 +4,6 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.FutureOptional;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript.NextUriScriptResult;
-import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Tuple;
 
 import java.time.Instant;
@@ -15,8 +14,8 @@ import java.util.Set;
 import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.*;
 
 public class NextUriScript extends RedisJob<NextUriScriptResult> {
-    public NextUriScript(JedisPool jedisPool) {
-        super(jedisPool, "nexturi");
+    public NextUriScript() {
+        super("nexturi");
     }
 
     public static class NextUriScriptResult {
@@ -46,8 +45,8 @@ public class NextUriScript extends RedisJob<NextUriScriptResult> {
         }
     }
 
-    public NextUriScriptResult run(CrawlHostGroup crawlHostGroup) {
-        return execute(jedis -> {
+    public NextUriScriptResult run(JedisContext ctx, CrawlHostGroup crawlHostGroup) {
+        return execute(ctx, jedis -> {
             String chg = createChgPolitenessKey(crawlHostGroup);
             // Find the crawl execution with the highest score
             Set<Tuple> mResult = jedis.zrevrangeByScoreWithScores(UCHG + chg, "+inf", "-inf", 0, 1);

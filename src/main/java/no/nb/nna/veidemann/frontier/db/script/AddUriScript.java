@@ -3,7 +3,6 @@ package no.nb.nna.veidemann.frontier.db.script;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.util.Timestamps;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
-import redis.clients.jedis.JedisPool;
 
 import java.util.List;
 
@@ -13,14 +12,14 @@ public class AddUriScript extends RedisJob<Void> {
     final LuaScript addUriScript;
     final LuaScript addChgScript;
 
-    public AddUriScript(JedisPool jedisPool) {
-        super(jedisPool, "adduri");
+    public AddUriScript() {
+        super("adduri");
         addUriScript = new LuaScript("adduri.lua");
         addChgScript = new LuaScript("chg_add.lua");
     }
 
-    public void run(QueuedUri qUri) {
-        execute(jedis -> {
+    public void run(JedisContext ctx, QueuedUri qUri) {
+        execute(ctx, jedis -> {
             String chgp = createChgPolitenessKey(qUri);
             String ueIdKey = String.format("%s%s:%s",
                     UEID,

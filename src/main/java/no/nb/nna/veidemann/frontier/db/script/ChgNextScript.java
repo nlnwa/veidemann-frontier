@@ -5,7 +5,6 @@ import com.google.common.primitives.Longs;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Tuple;
 
 import java.util.List;
@@ -16,13 +15,13 @@ public class ChgNextScript extends RedisJob<CrawlHostGroup> {
     private static final Logger LOG = LoggerFactory.getLogger(ChgNextScript.class);
     final LuaScript chgNextScript;
 
-    public ChgNextScript(JedisPool jedisPool) {
-        super(jedisPool, "chgNext");
+    public ChgNextScript() {
+        super("chgNext");
         chgNextScript = new LuaScript("chg_next.lua");
     }
 
-    public CrawlHostGroup run(long busyTimeout) {
-        return execute(jedis -> {
+    public CrawlHostGroup run(JedisContext ctx, long busyTimeout) {
+        return execute(ctx, jedis -> {
             List<String> res = jedis.brpop(5, CHG_READY_KEY);
             if (res == null) {
                 if (LOG.isInfoEnabled()) {
