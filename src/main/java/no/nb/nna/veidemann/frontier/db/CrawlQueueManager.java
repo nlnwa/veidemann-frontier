@@ -20,6 +20,7 @@ import no.nb.nna.veidemann.frontier.db.script.ChgNextScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgReleaseScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript.NextUriScriptResult;
+import no.nb.nna.veidemann.frontier.db.script.RedisJob.JedisContext;
 import no.nb.nna.veidemann.frontier.db.script.RemoveUriScript;
 import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
@@ -74,11 +75,11 @@ public class CrawlQueueManager {
     public CrawlQueueManager(Frontier frontier, RethinkDbConnection conn, JedisPool jedisPool) {
         this.conn = conn;
         this.jedisPool = jedisPool;
-        addUriScript = new AddUriScript(jedisPool);
-        removeUriScript = new RemoveUriScript(jedisPool);
-        nextUriScript = new NextUriScript(jedisPool);
-        getNextChgScript = new ChgNextScript(jedisPool);
-        releaseChgScript = new ChgReleaseScript(jedisPool);
+        addUriScript = new AddUriScript();
+        removeUriScript = new RemoveUriScript();
+        nextUriScript = new NextUriScript();
+        getNextChgScript = new ChgNextScript();
+        releaseChgScript = new ChgReleaseScript();
 
         this.chgManager = new CrawlQueueWorker(frontier, conn, jedisPool);
     }
@@ -118,7 +119,9 @@ public class CrawlQueueManager {
 
             Map newDoc = changes.get(0).get("new_val");
             qUri = ProtoUtils.rethinkToProto(newDoc, QueuedUri.class);
-            addUriScript.run(qUri);
+            try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+                addUriScript.run(ctx, qUri);
+            }
             return qUri;
         } catch (Exception e) {
             LOG.warn(e.getMessage(), e);
@@ -127,18 +130,18 @@ public class CrawlQueueManager {
     }
 
     public CrawlableUri getNextToFetch(Context ctx) {
-        try {
+        try (JedisContext jedisContext = JedisContext.forPool(jedisPool)) {
             if (DbService.getInstance().getExecutionsAdapter().getDesiredPausedState()) {
                 Thread.sleep(RESCHEDULE_DELAY);
                 return null;
             }
 
-            CrawlHostGroup chg = getNextReadyCrawlHostGroup(ctx);
+            CrawlHostGroup chg = getNextReadyCrawlHostGroup(ctx, jedisContext);
             if (chg == null) {
                 return null;
             }
             if (ctx.isCancelled()) {
-                releaseCrawlHostGroup(chg, RESCHEDULE_DELAY);
+                releaseCrawlHostGroup(jedisContext, chg, RESCHEDULE_DELAY);
                 return null;
             }
 
@@ -146,7 +149,7 @@ public class CrawlQueueManager {
             LOG.trace("Found Crawl Host Group ({})", chgId);
 
             // try to find URI for CrawlHostGroup
-            FutureOptional<QueuedUri> foqu = getNextQueuedUriToFetch(chg, conn);
+            FutureOptional<QueuedUri> foqu = getNextQueuedUriToFetch(jedisContext, chg, conn);
 
             if (foqu.isPresent()) {
                 LOG.debug("Found Queued URI: {}, crawlHostGroup: {}, sequence: {}",
@@ -160,11 +163,11 @@ public class CrawlQueueManager {
                 // This ensures new uri's do not have to wait until a failed uri is eligible for retry while
                 // not using to much resources.
                 long delay = (RESCHEDULE_DELAY + foqu.getDelayMs()) / 2;
-                releaseCrawlHostGroup(chg, delay);
+                releaseCrawlHostGroup(jedisContext, chg, delay);
             } else {
                 // No URI found for this CrawlHostGroup. Wait for RESCHEDULE_DELAY and try again.
                 LOG.trace("No Queued URI found waiting {}ms before retry", RESCHEDULE_DELAY);
-                releaseCrawlHostGroup(chg, RESCHEDULE_DELAY);
+                releaseCrawlHostGroup(jedisContext, chg, RESCHEDULE_DELAY);
             }
         } catch (Exception e) {
             LOG.error("Failed borrowing CrawlHostGroup", e);
@@ -182,29 +185,33 @@ public class CrawlQueueManager {
     }
 
     public long deleteQueuedUrisForExecution(String executionId) throws DbException {
-        long deleted = 0;
-        try (Jedis jedis = jedisPool.getResource()) {
-            ScanResult<String> queues = jedis.scan("0", new ScanParams().match(UEID + "*:" + executionId));
-            while (!queues.isCompleteIteration()) {
-                for (String queue : queues.getResult()) {
-                    String[] queueParts = queue.split(":");
-                    String chgp = queueParts[1] + ":" + queueParts[2];
-                    ScanResult<Tuple> uris = new ScanResult<Tuple>("0", null);
-                    do {
-                        uris = jedis.zscan(queue, uris.getCursor());
-                        for (Tuple uri : uris.getResult()) {
-                            String[] uriParts = uri.getElement().split(":", 3);
-                            String uriId = uriParts[2];
-                            long sequence = Longs.tryParse(uriParts[0].trim());
-                            long fetchTime = Longs.tryParse(uriParts[1].trim());
+        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+            return deleteQueuedUrisForExecution(ctx, executionId);
+        }
+    }
 
-                            // Remove queued uri from Redis
-                            removeQUri(uriId, chgp, executionId, sequence, fetchTime, true);
-                        }
-                    } while (!uris.isCompleteIteration());
-                }
-                queues = jedis.scan(queues.getCursor(), new ScanParams().match(UEID + "*:" + executionId));
+    public long deleteQueuedUrisForExecution(JedisContext ctx, String executionId) throws DbException {
+        long deleted = 0;
+        ScanResult<String> queues = ctx.getJedis().scan("0", new ScanParams().match(UEID + "*:" + executionId));
+        while (!queues.isCompleteIteration()) {
+            for (String queue : queues.getResult()) {
+                String[] queueParts = queue.split(":");
+                String chgp = queueParts[1] + ":" + queueParts[2];
+                ScanResult<Tuple> uris = new ScanResult<Tuple>("0", null);
+                do {
+                    uris = ctx.getJedis().zscan(queue, uris.getCursor());
+                    for (Tuple uri : uris.getResult()) {
+                        String[] uriParts = uri.getElement().split(":", 3);
+                        String uriId = uriParts[2];
+                        long sequence = Longs.tryParse(uriParts[0].trim());
+                        long fetchTime = Longs.tryParse(uriParts[1].trim());
+
+                        // Remove queued uri from Redis
+                        removeQUri(ctx, uriId, chgp, executionId, sequence, fetchTime, true);
+                    }
+                } while (!uris.isCompleteIteration());
             }
+            queues = ctx.getJedis().scan(queues.getCursor(), new ScanParams().match(UEID + "*:" + executionId));
         }
         return deleted;
     }
@@ -243,8 +250,8 @@ public class CrawlQueueManager {
         return Hashing.sha256().hashUnencodedChars(uri).toString();
     }
 
-    FutureOptional<QueuedUri> getNextQueuedUriToFetch(CrawlHostGroup crawlHostGroup, RethinkDbConnection conn) {
-        NextUriScriptResult res = nextUriScript.run(crawlHostGroup);
+    FutureOptional<QueuedUri> getNextQueuedUriToFetch(JedisContext ctx, CrawlHostGroup crawlHostGroup, RethinkDbConnection conn) {
+        NextUriScriptResult res = nextUriScript.run(ctx, crawlHostGroup);
         if (res.future != null) {
             return res.future;
         }
@@ -264,7 +271,7 @@ public class CrawlQueueManager {
             return FutureOptional.of(no.nb.nna.veidemann.db.ProtoUtils.rethinkToProto(obj, QueuedUri.class));
         } else {
             LOG.warn("Db inconsistency: Could not find queued uri: {}", res.id);
-            removeQUri(res.id, res.chgp, res.eid, res.sequence, res.fetchTime, false);
+            removeQUri(ctx, res.id, res.chgp, res.eid, res.sequence, res.fetchTime, false);
             return FutureOptional.empty();
         }
     }
@@ -305,8 +312,8 @@ public class CrawlQueueManager {
         }
     }
 
-    private void removeQUri(String id, String chgp, String eid, long sequence, long fetchTime, boolean deleteUri) {
-        long numRemoved = removeUriScript.run(id, chgp, eid, sequence, fetchTime, deleteUri);
+    private void removeQUri(JedisContext ctx, String id, String chgp, String eid, long sequence, long fetchTime, boolean deleteUri) {
+        long numRemoved = removeUriScript.run(ctx, id, chgp, eid, sequence, fetchTime, deleteUri);
         if (numRemoved != 1) {
             LOG.debug("Queued uri id '{}' to be removed from Redis was not found", id);
         }
@@ -314,19 +321,21 @@ public class CrawlQueueManager {
 
     public void removeQUri(QueuedUri qUri, String chg, boolean deleteUri) {
         String chgp = createChgPolitenessKey(chg, qUri.getPolitenessRef().getId());
-        long numRemoved = removeUriScript.run(
-                qUri.getId(),
-                chgp,
-                qUri.getExecutionId(),
-                qUri.getSequence(),
-                qUri.getEarliestFetchTimeStamp().getSeconds(),
-                deleteUri);
-        if (numRemoved != 1) {
-            LOG.debug("Queued uri id '{}' to be removed from Redis was not found", qUri.getId());
+        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+            long numRemoved = removeUriScript.run(ctx,
+                    qUri.getId(),
+                    chgp,
+                    qUri.getExecutionId(),
+                    qUri.getSequence(),
+                    qUri.getEarliestFetchTimeStamp().getSeconds(),
+                    deleteUri);
+            if (numRemoved != 1) {
+                LOG.debug("Queued uri id '{}' to be removed from Redis was not found", qUri.getId());
+            }
         }
     }
 
-    private CrawlHostGroup getNextReadyCrawlHostGroup(Context ctx) {
+    private CrawlHostGroup getNextReadyCrawlHostGroup(Context ctx, JedisContext jedisContext) {
         try {
             while (!nextChgLock.tryAcquire(300, TimeUnit.MILLISECONDS)) {
                 if (ctx.isCancelled()) {
@@ -340,7 +349,7 @@ public class CrawlQueueManager {
             if (ctx.isCancelled()) {
                 return null;
             }
-            CrawlHostGroup chg = getNextChgScript.run(BUSY_TIMEOUT);
+            CrawlHostGroup chg = getNextChgScript.run(jedisContext, BUSY_TIMEOUT);
             return chg;
         } catch (Exception e) {
             LOG.warn(e.getMessage(), e);
@@ -351,8 +360,14 @@ public class CrawlQueueManager {
     }
 
     public void releaseCrawlHostGroup(CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
+        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+            releaseCrawlHostGroup(ctx, crawlHostGroup, nextFetchDelayMs);
+        }
+    }
+
+    public void releaseCrawlHostGroup(JedisContext ctx, CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
         LOG.debug("Releasing CrawlHostGroup: " + crawlHostGroup.getId() + ", with queue count: " + crawlHostGroup.getQueuedUriCount());
-        releaseChgScript.run(crawlHostGroup, System.currentTimeMillis() + nextFetchDelayMs);
+        releaseChgScript.run(ctx, crawlHostGroup, System.currentTimeMillis() + nextFetchDelayMs);
     }
 
     public void scheduleCrawlExecutionTimeout(String ceid, OffsetDateTime timeout) {

@@ -5,6 +5,7 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.db.RethinkDbConnection;
 import no.nb.nna.veidemann.db.Tables;
 import no.nb.nna.veidemann.frontier.db.script.ChgDelayedQueueScript;
+import no.nb.nna.veidemann.frontier.db.script.RedisJob.JedisContext;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import no.nb.nna.veidemann.frontier.worker.StatusWrapper;
 import org.slf4j.Logger;
@@ -32,16 +33,16 @@ public class CrawlQueueWorker {
     Runnable chgQueueWorker = new Runnable() {
         @Override
         public void run() {
-            try {
-                Long moved = delayedChgQueueScript.run(CrawlQueueManager.CHG_WAIT_KEY, CrawlQueueManager.CHG_READY_KEY);
+            try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+                Long moved = delayedChgQueueScript.run(ctx, CrawlQueueManager.CHG_WAIT_KEY, CrawlQueueManager.CHG_READY_KEY);
                 if (moved > 0) {
                     LOG.debug("{} CrawlHostGroups moved from wait state to ready state", moved);
                 }
-                moved = delayedChgQueueScript.run(CrawlQueueManager.CHG_BUSY_KEY, CrawlQueueManager.CHG_READY_KEY);
+                moved = delayedChgQueueScript.run(ctx, CrawlQueueManager.CHG_BUSY_KEY, CrawlQueueManager.CHG_READY_KEY);
                 if (moved > 0) {
                     LOG.warn("{} CrawlHostGroups moved from busy state to ready state", moved);
                 }
-                moved = delayedChgQueueScript.run(CrawlQueueManager.CRAWL_EXECUTION_RUNNING_KEY, CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
+                moved = delayedChgQueueScript.run(ctx, CrawlQueueManager.CRAWL_EXECUTION_RUNNING_KEY, CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
                 if (moved > 0) {
                     LOG.debug("{} CrawlExecutions moved from running state to timeout state", moved);
                 }
@@ -80,8 +81,8 @@ public class CrawlQueueWorker {
     Runnable crawlExecutionTimeoutWorker = new Runnable() {
         @Override
         public void run() {
-            try (Jedis jedis = jedisPool.getResource()) {
-                String toBeRemoved = jedis.lpop(CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
+            try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+                String toBeRemoved = ctx.getJedis().lpop(CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
                 while (toBeRemoved != null) {
                     try {
                         StatusWrapper s = StatusWrapper.getStatusWrapper(frontier, toBeRemoved);
@@ -90,7 +91,7 @@ public class CrawlQueueWorker {
                             case CREATED:
                                 LOG.debug("CrawlExecution '{}' with state {} timed out", s.getId(), s.getState());
                                 s.incrementDocumentsDenied(frontier.getCrawlQueueManager()
-                                        .deleteQueuedUrisForExecution(toBeRemoved))
+                                        .deleteQueuedUrisForExecution(ctx, toBeRemoved))
                                         .setEndState(State.ABORTED_TIMEOUT)
                                         .saveStatus();
                                 break;
@@ -101,7 +102,7 @@ public class CrawlQueueWorker {
                         // Don't worry execution will be deleted at some point later
                     }
 
-                    toBeRemoved = jedis.lpop(CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
+                    toBeRemoved = ctx.getJedis().lpop(CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -115,7 +116,7 @@ public class CrawlQueueWorker {
         this.jedisPool = jedisPool;
         executor = Executors.newScheduledThreadPool(1);
 
-        delayedChgQueueScript = new ChgDelayedQueueScript(jedisPool);
+        delayedChgQueueScript = new ChgDelayedQueueScript();
         executor.scheduleWithFixedDelay(chgQueueWorker, 400, 400, TimeUnit.MILLISECONDS);
         executor.scheduleWithFixedDelay(removeUriQueueWorker, 1000, 1000, TimeUnit.MILLISECONDS);
         executor.scheduleWithFixedDelay(crawlExecutionTimeoutWorker, 1100, 1100, TimeUnit.MILLISECONDS);
