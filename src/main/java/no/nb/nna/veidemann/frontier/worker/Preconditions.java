@@ -18,14 +18,11 @@ package no.nb.nna.veidemann.frontier.worker;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.PolitenessConfig.RobotsPolicy;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
-import no.nb.nna.veidemann.commons.db.ConfigAdapter;
 import no.nb.nna.veidemann.commons.db.DbException;
-import no.nb.nna.veidemann.commons.db.DbService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.UnknownHostException;
-import java.util.concurrent.ExecutionException;
 
 /**
  *
@@ -37,8 +34,7 @@ public class Preconditions {
     public enum PreconditionState {
         OK,
         DENIED,
-        RETRY,
-        FAIL
+        RETRY
     }
 
     private Preconditions() {
@@ -46,6 +42,12 @@ public class Preconditions {
 
     public static PreconditionState checkPreconditions(Frontier frontier, ConfigObject crawlConfig, StatusWrapper status,
                                                        QueuedUriWrapper qUri) throws DbException {
+
+        if (!qUri.shouldInclude()) {
+            LOG.info("URI '{}' precluded by scope check. Reason: {}", qUri.getUri(), qUri.getExcludedReasonStatusCode());
+            DbUtil.writeLog(qUri);
+            return PreconditionState.DENIED;
+        }
 
         ConfigObject politeness = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
         ConfigObject browserConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getBrowserConfigRef());
@@ -55,31 +57,17 @@ public class Preconditions {
         if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
             qUri.setResolved(politeness);
         } else {
-            DbUtil.writeLog(qUri, ExtraStatusCodes.FAILED_DNS.getCode());
-            status.incrementDocumentsFailed();
-            return PreconditionState.FAIL;
+            DbUtil.writeLog(qUri);
+            return PreconditionState.RETRY;
         }
 
         if (!checkRobots(frontier, browserConfig.getBrowserConfig().getUserAgent(), crawlConfig, politeness, qUri)) {
             status.incrementDocumentsDenied(1L);
+            DbUtil.writeLog(qUri);
             return PreconditionState.DENIED;
         }
 
         return PreconditionState.OK;
-
-//        if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
-//            qUri.setResolved(politeness);
-//            return PreconditionState.OK;
-//        } else {
-//            if (LimitsCheck.isRetryLimitReached(politeness, qUri)) {
-//                LOG.info("Failed fetching '{}' due to retry limit", qUri.getUri());
-//                status.incrementDocumentsFailed();
-//                return PreconditionState.FAIL;
-//            } else {
-//                status.incrementDocumentsRetried();
-//                return PreconditionState.RETRY;
-//            }
-//        }
     }
 
     private static boolean checkRobots(Frontier frontier, String userAgent, ConfigObject crawlConfig, ConfigObject politeness,
@@ -91,7 +79,6 @@ public class Preconditions {
                 crawlConfig.getCrawlConfig().getCollectionRef())) {
             LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
             qUri = qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
-            DbUtil.writeLog(qUri);
             return false;
         }
         return true;
@@ -116,11 +103,10 @@ public class Preconditions {
                     qUri.getUri(),
                     qUri.getHost(),
                     qUri.getPort(),
-                    ex);
+                    ex.getCause());
 
-            qUri.setError(ExtraStatusCodes.FAILED_DNS.toFetchError(ex.toString()));
-//                    .setEarliestFetchDelaySeconds(politeness.getPolitenessConfig().getRetryDelaySeconds())
-//                    .incrementRetries();
+            qUri.setError(ExtraStatusCodes.FAILED_DNS.toFetchError(ex.toString()))
+                    .setEarliestFetchDelaySeconds(politeness.getPolitenessConfig().getRetryDelaySeconds());
             return false;
         }
     }

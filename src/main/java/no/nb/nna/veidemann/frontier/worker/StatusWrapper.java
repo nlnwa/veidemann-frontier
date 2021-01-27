@@ -154,7 +154,7 @@ public class StatusWrapper {
             // Update the CrawlExecutionStatus
             Update qry = r.table(Tables.EXECUTIONS.name)
                     .get(change.getId())
-                    .update(updateFunc);
+                    .update(updateFunc).optArg("durability", "soft");
 
 
             // Return both the new and the old values

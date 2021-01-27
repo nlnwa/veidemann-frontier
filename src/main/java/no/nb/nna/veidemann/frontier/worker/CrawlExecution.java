@@ -38,7 +38,9 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -87,6 +89,8 @@ public class CrawlExecution {
     private AtomicBoolean done = new AtomicBoolean();
 
     private AtomicBoolean finalized = new AtomicBoolean();
+
+    private List<QueuedUri> outlinkQueue = new ArrayList<>();
 
     public CrawlExecution(QueuedUri queuedUri, CrawlHostGroup crawlHostGroup, Frontier frontier) throws DbException {
         this.status = StatusWrapper.getStatusWrapper(frontier, queuedUri.getExecutionId());
@@ -168,23 +172,17 @@ public class CrawlExecution {
                 PreconditionState check = Preconditions.checkPreconditions(frontier, crawlConfig, status, qUri);
                 switch (check) {
                     case DENIED:
-                    case FAIL:
                         delayMs = -1L;
                         frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
                         status.removeCurrentUri(qUri).saveStatus();
                         return null;
                     case RETRY:
-                        qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
                         frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
-                        if (qUri.forceAddUriToQueue(status)) {
-                            uriAdded = true;
-                        } else if (frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
-                            // No URIs in queue; mark crawl as finished
-                            endCrawl(CrawlExecutionStatus.State.FINISHED);
-                        }
+                        postFetchFailure(qUri.getError());
+                        postFetchFinally();
                         return null;
                     case OK:
-                        // IP resolution done, requeue to account for politeness
+                        // IP resolution done
                         frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
                         qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
                 }
@@ -262,68 +260,82 @@ public class CrawlExecution {
      */
     public void postFetchFinally() {
         if (finalized.compareAndSet(false, true)) {
-
-            MDC.put("eid", qUri.getExecutionId());
-            MDC.put("uri", qUri.getUri());
-
-            try {
+            if (fetchStart == 0) {
+                fetchTimeMs = 0;
+            } else {
                 long fetchEnd = System.currentTimeMillis();
                 fetchTimeMs = fetchEnd - fetchStart;
-                calculateDelay();
+            }
+            calculateDelay();
 
-                if (qUri.hasError() && qUri.getDiscoveryPath().isEmpty()) {
-                    if (qUri.getError().getCode() == ExtraStatusCodes.PRECLUDED_BY_ROBOTS.getCode()) {
-                        // Seed precluded by robots.txt; mark crawl as finished
-                        endCrawl(CrawlExecutionStatus.State.FINISHED, qUri.getError());
-                    } else {
-                        // Seed failed; mark crawl as failed
-                        endCrawl(CrawlExecutionStatus.State.FAILED, qUri.getError());
+            frontier.postFetchThreadPool.submit(() -> {
+                MDC.put("eid", qUri.getExecutionId());
+                MDC.put("uri", qUri.getUri());
+
+                // Handle outlinks
+                for (QueuedUri outlink : outlinkQueue) {
+                    String canonicalizedUri = frontier.getScopeServiceClient().canonicalize(outlink.getUri());
+                    QueuedUri ol = outlink.toBuilder()
+                            .setUri(canonicalizedUri)
+                            .setSeedUri(qUri.getSeedUri())
+                            .build();
+
+                    try {
+                        if (outlinkHandler.processOutlink(frontier, ol, scriptParameters,
+                                jobConfig.getCrawlJob().getScopeScriptRef())) {
+                            uriAdded = true;
+                        }
+                    } catch (DbException e) {
+                        e.printStackTrace();
                     }
-                } else if (!uriAdded && frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
-                    endCrawl(CrawlExecutionStatus.State.FINISHED);
                 }
 
-                // Save updated status
-                status.saveStatus();
+                try {
+                    if (qUri.hasError() && qUri.getDiscoveryPath().isEmpty()) {
+                        if (qUri.getError().getCode() == ExtraStatusCodes.PRECLUDED_BY_ROBOTS.getCode()) {
+                            // Seed precluded by robots.txt; mark crawl as finished
+                            endCrawl(CrawlExecutionStatus.State.FINISHED, qUri.getError());
+                        } else {
+                            // Seed failed; mark crawl as failed
+                            endCrawl(CrawlExecutionStatus.State.FAILED, qUri.getError());
+                        }
+                    } else if (!uriAdded && frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
+                        endCrawl(CrawlExecutionStatus.State.FINISHED);
+                    }
 
-                // Recheck if user aborted crawl while fetching last uri.
-                if (isAborted()) {
-                    delayMs = 0L;
+                    // Save updated status
+                    status.saveStatus();
+
+                    // Recheck if user aborted crawl while fetching last uri.
+                    if (isAborted()) {
+                        delayMs = 0L;
+                    }
+                } catch (DbException e) {
+                    // An error here indicates problems with DB communication. No idea how to handle that yet.
+                    LOG.error("Error updating status after fetch: {}", e.toString(), e);
+                } catch (Throwable e) {
+                    // Catch everything to ensure crawl host group gets released.
+                    // Discovering this message in logs should be investigated as a possible bug.
+                    LOG.error("Unknown error in post fetch. Might be a bug", e);
                 }
-            } catch (DbException e) {
-                // An error here indicates problems with DB communication. No idea how to handle that yet.
-                LOG.error("Error updating status after fetch: {}", e.toString(), e);
-            } catch (Throwable e) {
-                // Catch everything to ensure crawl host group gets released.
-                // Discovering this message in logs should be investigated as a possible bug.
-                LOG.error("Unknown error in post fetch. Might be a bug", e);
-            }
 
-            try {
-                frontier.getCrawlQueueManager().releaseCrawlHostGroup(getCrawlHostGroup(), getDelay(TimeUnit.MILLISECONDS));
-            } catch (Throwable t) {
-                // An error here indicates unknown problems with DB communication. No idea how to handle that yet.
-                LOG.error("Error releasing CrawlHostGroup: {}", t.toString(), t);
-            }
-            span.finish();
+                try {
+                    frontier.getCrawlQueueManager().releaseCrawlHostGroup(getCrawlHostGroup(), getDelay(TimeUnit.MILLISECONDS));
+                } catch (Throwable t) {
+                    // An error here indicates unknown problems with DB communication. No idea how to handle that yet.
+                    LOG.error("Error releasing CrawlHostGroup: {}", t.toString(), t);
+                }
+                span.finish();
+            });
         }
     }
 
     public void queueOutlink(QueuedUri outlink) throws DbException {
-        String canonicalizedUri = frontier.getScopeServiceClient().canonicalize(outlink.getUri());
-        outlink = outlink.toBuilder()
-                .setUri(canonicalizedUri)
-                .setSeedUri(qUri.getSeedUri())
-                .build();
-
-        if (outlinkHandler.processOutlink(frontier, outlink, scriptParameters,
-                jobConfig.getCrawlJob().getScopeScriptRef())) {
-            uriAdded = true;
-        }
+        outlinkQueue.add(outlink);
     }
 
     private void calculateDelay() {
-        if (delayMs == -1) {
+        if (delayMs < 0) {
             delayMs = 0L;
             return;
         }
@@ -361,6 +373,7 @@ public class CrawlExecution {
             if (LimitsCheck.isRetryLimitReached(politenessConfig, qUri)) {
                 LOG.info("Failed fetching ({}) at attempt #{} due to retry limit", qUri, qUri.getRetries());
                 status.incrementDocumentsFailed();
+                frontier.getCrawlQueueManager().removeQUri(oldUri, crawlHostGroup.getId(), true);
                 status.removeCurrentUri(qUri).saveStatus();
             } else {
                 LOG.info("Failed fetching ({}) at attempt #{}, retrying in {} seconds", qUri, qUri.getRetries(), politenessConfig.getPolitenessConfig().getRetryDelaySeconds());
@@ -374,6 +387,7 @@ public class CrawlExecution {
             LOG.info("Failed fetching ({}). URI will not be retried", qUri);
             qUri.setError(error);
             status.incrementDocumentsFailed();
+            frontier.getCrawlQueueManager().removeQUri(qUri.getQueuedUri(), crawlHostGroup.getId(), true);
             status.removeCurrentUri(qUri).saveStatus();
         }
     }

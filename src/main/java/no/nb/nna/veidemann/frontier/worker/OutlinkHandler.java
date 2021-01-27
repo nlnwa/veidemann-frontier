@@ -73,7 +73,6 @@ public class OutlinkHandler {
                             wasQueued = true;
                         }
                         break;
-                    case FAIL:
                     case DENIED:
                         break;
                 }

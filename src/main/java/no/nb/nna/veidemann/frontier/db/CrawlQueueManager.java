@@ -113,6 +113,7 @@ public class CrawlQueueManager {
             Map<String, Object> response = conn.exec("db-saveQueuedUri",
                     r.table(Tables.URI_QUEUE.name)
                             .insert(rMap)
+                            .optArg("durability", "soft")
                             .optArg("conflict", "replace")
                             .optArg("return_changes", "always"));
             List<Map<String, Map>> changes = (List<Map<String, Map>>) response.get("changes");
@@ -366,8 +367,8 @@ public class CrawlQueueManager {
     }
 
     public void releaseCrawlHostGroup(JedisContext ctx, CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
-        LOG.debug("Releasing CrawlHostGroup: " + crawlHostGroup.getId() + ", with queue count: " + crawlHostGroup.getQueuedUriCount());
-        releaseChgScript.run(ctx, crawlHostGroup, System.currentTimeMillis() + nextFetchDelayMs);
+        LOG.debug("Releasing CrawlHostGroup: {}, with queue count: {}", crawlHostGroup.getId(), crawlHostGroup.getQueuedUriCount());
+        releaseChgScript.run(ctx, crawlHostGroup, nextFetchDelayMs);
     }
 
     public void scheduleCrawlExecutionTimeout(String ceid, OffsetDateTime timeout) {

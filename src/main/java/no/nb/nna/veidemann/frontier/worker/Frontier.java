@@ -18,6 +18,7 @@ package no.nb.nna.veidemann.frontier.worker;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.rethinkdb.RethinkDB;
 import com.rethinkdb.gen.ast.Insert;
 import com.rethinkdb.model.MapObject;
@@ -26,6 +27,7 @@ import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
@@ -40,6 +42,7 @@ import no.nb.nna.veidemann.db.RethinkDbConnection;
 import no.nb.nna.veidemann.db.Tables;
 import no.nb.nna.veidemann.db.initializer.RethinkDbInitializer;
 import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
+import no.nb.nna.veidemann.frontier.worker.Preconditions.PreconditionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
@@ -52,8 +55,12 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Future;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -76,6 +83,13 @@ public class Frontier implements AutoCloseable {
     private final LoadingCache<ConfigRef, ConfigObject> configCache;
 
     private final ScriptParameterResolver scriptParameterResolver;
+
+    private final ExecutorService preFetchThreadPool =
+            new ThreadPoolExecutor(2, 64, 5, TimeUnit.SECONDS, new SynchronousQueue<>(),
+                    new ThreadFactoryBuilder().setNameFormat("prefetch").build(), new CallerRunsPolicy());
+    final ExecutorService postFetchThreadPool =
+            new ThreadPoolExecutor(8, 64, 5, TimeUnit.SECONDS, new SynchronousQueue<>(),
+                    new ThreadFactoryBuilder().setNameFormat("postfetch").build(), new CallerRunsPolicy());
 
     private final JedisPool jedisPool;
     final RethinkDbConnection conn;
@@ -103,8 +117,6 @@ public class Frontier implements AutoCloseable {
         scriptParameterResolver = new ScriptParameterResolver(this);
     }
 
-    ScheduledExecutorService x = Executors.newScheduledThreadPool(1);
-
     public CrawlExecutionStatus scheduleSeed(CrawlSeedRequest request) throws DbException {
         // Create execution
         StatusWrapper status = StatusWrapper.getStatusWrapper(this,
@@ -115,6 +127,17 @@ public class Frontier implements AutoCloseable {
 
         LOG.debug("New crawl execution: " + status.getId());
 
+        preFetchThreadPool.submit(() -> {
+            try {
+                preprocessAndQueueSeed(request, status);
+            } catch (DbException e) {
+                e.printStackTrace();
+            }
+        });
+        return status.getCrawlExecutionStatus();
+    }
+
+    public void preprocessAndQueueSeed(CrawlSeedRequest request, StatusWrapper status) throws DbException {
         String uri = request.getSeed().getMeta().getName();
 
         try {
@@ -125,18 +148,36 @@ public class Frontier implements AutoCloseable {
                     status.getId(), crawlConfig.getCrawlConfig().getPolitenessRef(), collectionConfig.getMeta().getName(),
                     scriptParameters, request.getJob().getCrawlJob().getScopeScriptRef());
             qUri.setPriorityWeight(crawlConfig.getCrawlConfig().getPriorityWeight());
+
+            if (!prefetch(qUri, crawlConfig, status)) {
+                if (qUri.shouldInclude()) {
+                    // Seed was in scope, but failed for other reason
+                    LOG.warn("Seed '{}' could not be crawled. Error: {}", qUri.getUri(), qUri.getError());
+                    status.setEndState(State.FAILED)
+                            .setError(qUri.getError())
+                            .incrementDocumentsFailed()
+                            .saveStatus();
+                } else {
+                    // Seed is out of scope
+                    LOG.warn("Seed '{}' could not be crawled. Status: {}, Error: {}", qUri.getUri(), qUri.getExcludedReasonStatusCode(), qUri.getExcludedError());
+                    if (qUri.hasExcludedError()) {
+                        status.setError(qUri.getExcludedError());
+                    } else if (qUri.hasError()) {
+                        status.setError(qUri.getError());
+                    }
+                    status.setEndState(State.FAILED)
+                            .incrementDocumentsDenied(1)
+                            .saveStatus();
+                }
+                return;
+            }
+
+            // Prefetch ok, add to queue
             boolean wasAdded = qUri.addUriToQueue(status);
             if (wasAdded) {
                 LOG.debug("Seed '{}' added to queue", qUri.getUri());
             } else {
-                if (qUri.shouldInclude()) {
-                    LOG.warn("Seed could not be crawled. Error: {}", qUri.getError());
-                } else {
-                    LOG.warn("Seed could not be crawled. Status: {}, Error: {}", qUri.getExcludedReasonStatusCode(), qUri.getExcludedError());
-                    if (qUri.hasExcludedError()) {
-                        status.setError(qUri.getExcludedError());
-                    }
-                }
+                LOG.warn("Seed could not be crawled, probably because another seed with same URL was already crawled. Error: {}", qUri.getError());
                 status.setEndState(CrawlExecutionStatus.State.FAILED);
                 if (qUri.hasError()) {
                     status.setError(qUri.getError());
@@ -167,8 +208,35 @@ public class Frontier implements AutoCloseable {
         if (timeout != null) {
             getCrawlQueueManager().scheduleCrawlExecutionTimeout(status.getId(), timeout);
         }
+    }
 
-        return status.getCrawlExecutionStatus();
+    public boolean prefetch(QueuedUriWrapper qUri, ConfigObject crawlConfig, StatusWrapper status) throws DbException {
+        PreconditionState check = Preconditions.checkPreconditions(this, crawlConfig, status, qUri);
+        boolean prefetchSucces;
+        switch (check) {
+            case DENIED:
+                prefetchSucces = false;
+                break;
+            case RETRY:
+                ConfigObject politenessConfig = getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
+                qUri.incrementRetries();
+                if (LimitsCheck.isRetryLimitReached(politenessConfig, qUri)) {
+                    // This will only happen if retry limit is <= 1.
+                    LOG.info("Failed fetching ({}) at attempt #{} due to retry limit", qUri, qUri.getRetries());
+                    status.incrementDocumentsFailed();
+                    prefetchSucces = false;
+                    break;
+                } else {
+                    LOG.info("Failed fetching ({}) at attempt #{}, retrying in {} seconds", qUri, qUri.getRetries(), politenessConfig.getPolitenessConfig().getRetryDelaySeconds());
+                    status.incrementDocumentsRetried();
+                    prefetchSucces = true;
+                    break;
+                }
+            default:
+                prefetchSucces = true;
+                break;
+        }
+        return prefetchSucces;
     }
 
     public RobotsServiceClient getRobotsServiceClient() {
@@ -326,6 +394,39 @@ public class Frontier implements AutoCloseable {
 
     @Override
     public void close() {
+        System.out.println("Shutting down Frontier");
+        Future preFetchFuture = shutdownPool("preFetchPool", preFetchThreadPool, 60, TimeUnit.SECONDS);
+        Future postFetchFuture = shutdownPool("postFetchPool", postFetchThreadPool, 60, TimeUnit.SECONDS);
+        try {
+            preFetchFuture.get();
+            postFetchFuture.get();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            // Preserve interrupt status
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public Future shutdownPool(String name, ExecutorService pool, long timeout, TimeUnit unit) {
+        pool.shutdown(); // Disable new tasks from being submitted
+        return ForkJoinPool.commonPool().submit(() -> {
+            try {
+                // Wait a while for existing tasks to terminate
+                if (!pool.awaitTermination(timeout, unit)) {
+                    pool.shutdownNow(); // Cancel currently executing tasks
+                    // Wait a while for tasks to respond to being cancelled
+                    if (!pool.awaitTermination(timeout, unit))
+                        System.err.println(name + " did not terminate");
+                }
+            } catch (InterruptedException ie) {
+                // (Re-)Cancel if current thread also interrupted
+                pool.shutdownNow();
+                // Preserve interrupt status
+                Thread.currentThread().interrupt();
+            }
+        });
     }
 
     /**
