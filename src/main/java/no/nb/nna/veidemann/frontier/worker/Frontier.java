@@ -86,10 +86,10 @@ public class Frontier implements AutoCloseable {
 
     private final ExecutorService preFetchThreadPool =
             new ThreadPoolExecutor(2, 64, 5, TimeUnit.SECONDS, new SynchronousQueue<>(),
-                    new ThreadFactoryBuilder().setNameFormat("prefetch").build(), new CallerRunsPolicy());
+                    new ThreadFactoryBuilder().setNameFormat("prefetch-%d").build(), new CallerRunsPolicy());
     final ExecutorService postFetchThreadPool =
             new ThreadPoolExecutor(8, 64, 5, TimeUnit.SECONDS, new SynchronousQueue<>(),
-                    new ThreadFactoryBuilder().setNameFormat("postfetch").build(), new CallerRunsPolicy());
+                    new ThreadFactoryBuilder().setNameFormat("postfetch-%d").build(), new CallerRunsPolicy());
 
     private final JedisPool jedisPool;
     final RethinkDbConnection conn;
@@ -108,7 +108,7 @@ public class Frontier implements AutoCloseable {
         configCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(5, TimeUnit.MINUTES)
                 .build(
-                        new CacheLoader<ConfigRef, ConfigObject>() {
+                        new CacheLoader<>() {
                             public ConfigObject load(ConfigRef key) throws DbException {
                                 return DbService.getInstance().getConfigAdapter()
                                         .getConfigObject(key);
@@ -398,6 +398,7 @@ public class Frontier implements AutoCloseable {
         Future preFetchFuture = shutdownPool("preFetchPool", preFetchThreadPool, 60, TimeUnit.SECONDS);
         Future postFetchFuture = shutdownPool("postFetchPool", postFetchThreadPool, 60, TimeUnit.SECONDS);
         try {
+            crawlQueueManager.close();
             preFetchFuture.get();
             postFetchFuture.get();
         } catch (InterruptedException e) {

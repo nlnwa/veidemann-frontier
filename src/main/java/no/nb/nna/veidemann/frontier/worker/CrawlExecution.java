@@ -167,25 +167,24 @@ public class CrawlExecution {
                 return null;
             }
 
-            if (qUri.isUnresolved()) {
-                QueuedUri preCheckUri = qUri.getQueuedUri();
-                PreconditionState check = Preconditions.checkPreconditions(frontier, crawlConfig, status, qUri);
-                switch (check) {
-                    case DENIED:
-                        delayMs = -1L;
-                        frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
-                        status.removeCurrentUri(qUri).saveStatus();
-                        return null;
-                    case RETRY:
-                        frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
-                        postFetchFailure(qUri.getError());
-                        postFetchFinally();
-                        return null;
-                    case OK:
-                        // IP resolution done
-                        frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
-                        qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
-                }
+            QueuedUri preCheckUri = qUri.getQueuedUri();
+            PreconditionState check = Preconditions.checkPreconditions(frontier, crawlConfig, status, qUri);
+            switch (check) {
+                case DENIED:
+                    delayMs = -1L;
+                    frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
+                    status.removeCurrentUri(qUri).saveStatus();
+                    postFetchFinally();
+                    return null;
+                case RETRY:
+                    frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
+                    postFetchFailure(qUri.getError());
+                    postFetchFinally();
+                    return null;
+                case OK:
+                    // IP resolution, scope check and robots.txt evaluation done
+                    frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
+                    qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
             }
 
             LOG.debug("Fetching " + qUri.getUri());

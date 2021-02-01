@@ -43,28 +43,40 @@ public class Preconditions {
     public static PreconditionState checkPreconditions(Frontier frontier, ConfigObject crawlConfig, StatusWrapper status,
                                                        QueuedUriWrapper qUri) throws DbException {
 
+        qUri.clearError();
+
         if (!qUri.shouldInclude()) {
-            LOG.info("URI '{}' precluded by scope check. Reason: {}", qUri.getUri(), qUri.getExcludedReasonStatusCode());
-            DbUtil.writeLog(qUri);
+            LOG.debug("URI '{}' precluded by scope check. Reason: {}", qUri.getUri(), qUri.getExcludedReasonStatusCode());
+            switch (qUri.getExcludedReasonStatusCode()) {
+                case -5001:
+                case -4001:
+                    // Do not log BLOCKED and TOO_MANY_HOPS
+                    break;
+                default:
+                    DbUtil.writeLog(qUri);
+            }
+            status.incrementDocumentsOutOfScope();
+            frontier.getOutOfScopeHandlerClient().submitUri(qUri.getQueuedUri());
             return PreconditionState.DENIED;
         }
 
         ConfigObject politeness = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
         ConfigObject browserConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getBrowserConfigRef());
 
-        qUri.clearError();
+        if (qUri.isUnresolved()) {
 
-        if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
-            qUri.setResolved(politeness);
-        } else {
-            DbUtil.writeLog(qUri);
-            return PreconditionState.RETRY;
-        }
+            if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
+                qUri.setResolved(politeness);
+            } else {
+                DbUtil.writeLog(qUri);
+                return PreconditionState.RETRY;
+            }
 
-        if (!checkRobots(frontier, browserConfig.getBrowserConfig().getUserAgent(), crawlConfig, politeness, qUri)) {
-            status.incrementDocumentsDenied(1L);
-            DbUtil.writeLog(qUri);
-            return PreconditionState.DENIED;
+            if (!checkRobots(frontier, browserConfig.getBrowserConfig().getUserAgent(), crawlConfig, politeness, qUri)) {
+                status.incrementDocumentsDenied(1L);
+                DbUtil.writeLog(qUri);
+                return PreconditionState.DENIED;
+            }
         }
 
         return PreconditionState.OK;
@@ -78,7 +90,7 @@ public class Preconditions {
                 && !frontier.getRobotsServiceClient().isAllowed(qUri.getQueuedUri(), userAgent, politeness,
                 crawlConfig.getCrawlConfig().getCollectionRef())) {
             LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
-            qUri = qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
+            qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
             return false;
         }
         return true;

@@ -30,6 +30,7 @@ public class ChgReleaseScript extends RedisJob<Void> {
             }
             jedis.zrem(CHG_BUSY_KEY, chgp);
             jedis.zadd(CHG_WAIT_KEY, readyTime, chgp);
+            jedis.decr(chgpKey);
             return null;
         });
     }

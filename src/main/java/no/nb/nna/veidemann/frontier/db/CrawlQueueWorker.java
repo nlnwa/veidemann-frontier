@@ -1,9 +1,13 @@
 package no.nb.nna.veidemann.frontier.db;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.rethinkdb.RethinkDB;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
+import no.nb.nna.veidemann.commons.db.DbException;
+import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.RethinkDbConnection;
 import no.nb.nna.veidemann.db.Tables;
+import no.nb.nna.veidemann.frontier.db.script.ChgBusyTimeoutScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgDelayedQueueScript;
 import no.nb.nna.veidemann.frontier.db.script.RedisJob.JedisContext;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
@@ -19,7 +23,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class CrawlQueueWorker {
+public class CrawlQueueWorker implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(CrawlQueueWorker.class);
 
     static final RethinkDB r = RethinkDB.r;
@@ -27,8 +31,9 @@ public class CrawlQueueWorker {
     private final Frontier frontier;
     private final RethinkDbConnection conn;
     private final JedisPool jedisPool;
-    ChgDelayedQueueScript delayedChgQueueScript;
-    ScheduledExecutorService executor;
+    private final ChgDelayedQueueScript delayedChgQueueScript;
+    private final ChgBusyTimeoutScript chgBusyTimeoutScript;
+    private final ScheduledExecutorService executor;
 
     Runnable chgQueueWorker = new Runnable() {
         @Override
@@ -38,7 +43,7 @@ public class CrawlQueueWorker {
                 if (moved > 0) {
                     LOG.debug("{} CrawlHostGroups moved from wait state to ready state", moved);
                 }
-                moved = delayedChgQueueScript.run(ctx, CrawlQueueManager.CHG_BUSY_KEY, CrawlQueueManager.CHG_READY_KEY);
+                moved = chgBusyTimeoutScript.run(ctx);
                 if (moved > 0) {
                     LOG.warn("{} CrawlHostGroups moved from busy state to ready state", moved);
                 }
@@ -110,16 +115,34 @@ public class CrawlQueueWorker {
         }
     };
 
+    Runnable checkPaused = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                frontier.getCrawlQueueManager().pause(DbService.getInstance().getExecutionsAdapter().getDesiredPausedState());
+            } catch (DbException e) {
+                LOG.warn("Could not read pause state", e);
+            }
+        }
+    };
+
     public CrawlQueueWorker(Frontier frontier, RethinkDbConnection conn, JedisPool jedisPool) {
         this.frontier = frontier;
         this.conn = conn;
         this.jedisPool = jedisPool;
-        executor = Executors.newScheduledThreadPool(1);
+        executor = Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("CrawlQueueWorker-%d").build());
 
         delayedChgQueueScript = new ChgDelayedQueueScript();
+        chgBusyTimeoutScript = new ChgBusyTimeoutScript();
         executor.scheduleWithFixedDelay(chgQueueWorker, 400, 400, TimeUnit.MILLISECONDS);
         executor.scheduleWithFixedDelay(removeUriQueueWorker, 1000, 1000, TimeUnit.MILLISECONDS);
         executor.scheduleWithFixedDelay(crawlExecutionTimeoutWorker, 1100, 1100, TimeUnit.MILLISECONDS);
+        executor.scheduleWithFixedDelay(checkPaused, 3, 3, TimeUnit.SECONDS);
     }
 
+    @Override
+    public void close() throws InterruptedException {
+        executor.shutdown();
+        executor.awaitTermination(15, TimeUnit.SECONDS);
+    }
 }
