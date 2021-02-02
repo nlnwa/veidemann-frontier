@@ -205,7 +205,6 @@ public class QueuedUriWrapper {
      */
     public boolean forceAddUriToQueue(StatusWrapper status) throws DbException {
         if (!shouldInclude()) {
-            logOutOfScope(status);
             return false;
         }
 
@@ -239,18 +238,6 @@ public class QueuedUriWrapper {
         wrapped = q.toBuilder();
 
         return true;
-    }
-
-    public void logOutOfScope(StatusWrapper status) throws DbException {
-        LOG.debug("URI '{}' is out of scope, skipping.", getUri());
-        if (scopeCheckResponse.hasError()) {
-            setError(scopeCheckResponse.getError());
-            DbUtil.writeLog(this);
-        } else {
-            DbUtil.writeLog(this, scopeCheckResponse.getExcludeReason());
-        }
-        status.incrementDocumentsOutOfScope();
-        frontier.getOutOfScopeHandlerClient().submitUri(getQueuedUri());
     }
 
     public String getHost() {

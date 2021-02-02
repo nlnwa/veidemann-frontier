@@ -22,7 +22,7 @@ public class ChgNextScript extends RedisJob<CrawlHostGroup> {
 
     public CrawlHostGroup run(JedisContext ctx, long busyTimeout) {
         return execute(ctx, jedis -> {
-            List<String> res = jedis.brpop(5, CHG_READY_KEY);
+            List<String> res = jedis.blpop(5, CHG_READY_KEY);
             if (res == null) {
                 if (LOG.isInfoEnabled()) {
                     long now = System.currentTimeMillis();

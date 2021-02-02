@@ -15,13 +15,13 @@ public class ChgReleaseScript extends RedisJob<Void> {
         super("release chg");
     }
 
-    public void run(JedisContext ctx, CrawlHostGroup crawlHostGroup, long nextFetchTimeMs) {
-        execute(ctx, jedis -> {
-            long readyTime = nextFetchTimeMs;
-            if (readyTime < System.currentTimeMillis()) {
-                readyTime = System.currentTimeMillis() + 10;
-            }
+    public void run(JedisContext ctx, CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
+        if (nextFetchDelayMs <= 0) {
+            nextFetchDelayMs = 10;
+        }
+        long readyTime = System.currentTimeMillis() + nextFetchDelayMs;
 
+        execute(ctx, jedis -> {
             String chgp = CrawlQueueManager.createChgPolitenessKey(crawlHostGroup);
             String chgpKey = CrawlQueueManager.CHG_PREFIX + chgp;
 
@@ -30,6 +30,7 @@ public class ChgReleaseScript extends RedisJob<Void> {
             }
             jedis.zrem(CHG_BUSY_KEY, chgp);
             jedis.zadd(CHG_WAIT_KEY, readyTime, chgp);
+            jedis.decr(chgpKey);
             return null;
         });
     }

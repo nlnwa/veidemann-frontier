@@ -53,32 +53,27 @@ public class OutlinkHandler {
         try {
             QueuedUriWrapper outUri = QueuedUriWrapper.getOutlinkQueuedUriWrapper(frontier, crawlExecution.qUri, outlink,
                     crawlExecution.collectionConfig.getMeta().getName(), scriptParameters, scopeScriptRef);
-            if (outUri.shouldInclude()) {
-                outUri.setSequence(outUri.getDiscoveryPath().length());
+            outUri.setSequence(outUri.getDiscoveryPath().length());
 
-                PreconditionState check = Preconditions.checkPreconditions(crawlExecution.frontier,
-                        crawlExecution.crawlConfig, crawlExecution.status, outUri);
-                switch (check) {
-                    case OK:
-                        LOG.debug("Found new URI: {}, queueing.", outUri.getUri());
-                        outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
-                        if (outUri.addUriToQueue(crawlExecution.status)) {
-                            wasQueued = true;
-                        }
-                        break;
-                    case RETRY:
-                        LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getUri());
-                        outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
-                        if (outUri.addUriToQueue(crawlExecution.status)) {
-                            wasQueued = true;
-                        }
-                        break;
-                    case FAIL:
-                    case DENIED:
-                        break;
-                }
-            } else {
-                outUri.logOutOfScope(crawlExecution.status);
+            PreconditionState check = Preconditions.checkPreconditions(crawlExecution.frontier,
+                    crawlExecution.crawlConfig, crawlExecution.status, outUri);
+            switch (check) {
+                case OK:
+                    LOG.debug("Found new URI: {}, queueing.", outUri.getUri());
+                    outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
+                    if (outUri.addUriToQueue(crawlExecution.status)) {
+                        wasQueued = true;
+                    }
+                    break;
+                case RETRY:
+                    LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getUri());
+                    outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
+                    if (outUri.addUriToQueue(crawlExecution.status)) {
+                        wasQueued = true;
+                    }
+                    break;
+                case DENIED:
+                    break;
             }
         } catch (URISyntaxException ex) {
             crawlExecution.status.incrementDocumentsFailed();
