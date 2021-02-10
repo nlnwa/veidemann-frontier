@@ -13,11 +13,13 @@ import no.nb.nna.veidemann.commons.db.FutureOptional;
 import no.nb.nna.veidemann.db.ProtoUtils;
 import no.nb.nna.veidemann.db.RethinkDbConnection;
 import no.nb.nna.veidemann.db.Tables;
+import no.nb.nna.veidemann.frontier.FrontierService;
 import no.nb.nna.veidemann.frontier.api.Context;
 import no.nb.nna.veidemann.frontier.db.script.AddUriScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgNextScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgQueueCountScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgReleaseScript;
+import no.nb.nna.veidemann.frontier.db.script.ChgUpdateBusyTimeoutScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript.NextUriScriptResult;
 import no.nb.nna.veidemann.frontier.db.script.RedisJob.JedisContext;
@@ -33,7 +35,9 @@ import redis.clients.jedis.ScanParams;
 import redis.clients.jedis.ScanResult;
 import redis.clients.jedis.Tuple;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -56,7 +60,6 @@ public class CrawlQueueManager implements AutoCloseable {
     public static final String URI_ALREADY_INCLUDED_PREFIX = "AINC:";
 
     static final RethinkDB r = RethinkDB.r;
-    private final static long BUSY_TIMEOUT = 300 * 1000;
     public static final long RESCHEDULE_DELAY = 1000;
 
     private final RethinkDbConnection conn;
@@ -67,6 +70,7 @@ public class CrawlQueueManager implements AutoCloseable {
     final ChgNextScript getNextChgScript;
     final ChgReleaseScript releaseChgScript;
     final ChgQueueCountScript countChgScript;
+    final ChgUpdateBusyTimeoutScript chgUpdateBusyTimeoutScript;
 
     private final CrawlQueueWorker chgManager;
     private final TimeoutSupplier<CrawlableUri> nextFetchSupplier;
@@ -80,6 +84,7 @@ public class CrawlQueueManager implements AutoCloseable {
         getNextChgScript = new ChgNextScript();
         releaseChgScript = new ChgReleaseScript();
         countChgScript = new ChgQueueCountScript();
+        chgUpdateBusyTimeoutScript = new ChgUpdateBusyTimeoutScript();
 
         this.chgManager = new CrawlQueueWorker(frontier, conn, jedisPool);
         this.nextFetchSupplier = new TimeoutSupplier<>(32, 15, TimeUnit.SECONDS, 4,
@@ -141,7 +146,9 @@ public class CrawlQueueManager implements AutoCloseable {
         while (!ctx.isCancelled()) {
             try {
                 CrawlableUri u = nextFetchSupplier.get(1, TimeUnit.SECONDS);
-                if (u != null) {
+                // Reset fetch timeout to compensate for idle time waiting in queue
+                if (u != null && updateBusyTimeout(u.getCrawlHostGroup(),
+                        Instant.now().plus(FrontierService.getSettings().getBusyTimeout()).toEpochMilli())) {
                     return u;
                 }
             } catch (InterruptedException e) {
@@ -180,7 +187,7 @@ public class CrawlQueueManager implements AutoCloseable {
                 releaseCrawlHostGroup(jedisContext, chg, delay);
             } else {
                 // No URI found for this CrawlHostGroup. Wait for RESCHEDULE_DELAY and try again.
-                LOG.trace("No Queued URI found waiting {}ms before retry", RESCHEDULE_DELAY);
+                LOG.warn("No Queued URI found waiting {}ms before retry", RESCHEDULE_DELAY);
                 releaseCrawlHostGroup(jedisContext, chg, RESCHEDULE_DELAY);
             }
         } catch (Exception e) {
@@ -284,7 +291,7 @@ public class CrawlQueueManager implements AutoCloseable {
         if (obj != null) {
             return FutureOptional.of(no.nb.nna.veidemann.db.ProtoUtils.rethinkToProto(obj, QueuedUri.class));
         } else {
-            LOG.warn("Db inconsistency: Could not find queued uri: {}", res.id);
+            LOG.warn("Db inconsistency: Could not find queued uri: {}, CHG: {}", res.id, res.chgp);
             removeQUri(ctx, res.id, res.chgp, res.eid, res.sequence, res.fetchTime, false);
             return FutureOptional.empty();
         }
@@ -327,7 +334,24 @@ public class CrawlQueueManager implements AutoCloseable {
         }
     }
 
-    public void removeQUri(QueuedUri qUri, String chg, boolean deleteUri) {
+    public boolean removeTmpCrawlHostGroup(QueuedUri qUri, String chg) {
+        return removeQUri(qUri, chg, false);
+    }
+
+    public boolean removeQUri(QueuedUri qUri, String chg) {
+        return removeQUri(qUri, chg, true);
+    }
+
+    private boolean removeQUri(QueuedUri qUri, String chg, boolean deleteUri) {
+        if (LOG.isTraceEnabled()) {
+            String stack = Arrays.stream(new RuntimeException().getStackTrace())
+                    .filter(s -> s.getClassName().contains("no.nb.nna"))
+                    .map(s -> String.format("%s:%s(%d)", s.getClassName().substring(s.getClassName().lastIndexOf(".") + 1), s.getMethodName(), s.getLineNumber()))
+                    .filter(s -> !s.equals("CrawlQueueManager:removeQUri(351)"))
+                    .reduce("", (r, s) -> r == "" ? s : r + "<<" + s);
+            LOG.trace("remUri: {}, Trace: {}", qUri.getId(), stack);
+        }
+
         String chgp = createChgPolitenessKey(chg, qUri.getPolitenessRef().getId());
         try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
             long numRemoved = removeUriScript.run(ctx,
@@ -341,11 +365,43 @@ public class CrawlQueueManager implements AutoCloseable {
                 LOG.debug("Queued uri id '{}' to be removed from Redis was not found", qUri.getId());
             }
         }
+        return true;
+    }
+
+    public Long getBusyTimeout(CrawlHostGroup crawlHostGroup) {
+        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+            Double timeout = ctx.getJedis().zscore(CHG_BUSY_KEY, createChgPolitenessKey(crawlHostGroup));
+            if (timeout == null) {
+                return null;
+            }
+            return timeout.longValue();
+        }
+    }
+
+    /**
+     * Update timeout for busy CHG.
+     * <p>
+     * Timeout is only updated if CHG is already in busy state. If CHG was not busy, nothing is done and the return value is false.
+     *
+     * @param crawlHostGroup the CHG to update
+     * @param timeoutMs      the new timeout value
+     * @return true if CHG was busy
+     */
+    public boolean updateBusyTimeout(CrawlHostGroup crawlHostGroup, Long timeoutMs) {
+        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+            return updateBusyTimeout(ctx, crawlHostGroup, timeoutMs);
+        }
+    }
+
+    public boolean updateBusyTimeout(JedisContext ctx, CrawlHostGroup crawlHostGroup, Long timeoutMs) {
+        Long resp = chgUpdateBusyTimeoutScript.run(ctx, createChgPolitenessKey(crawlHostGroup), timeoutMs);
+        return resp != null;
     }
 
     private CrawlHostGroup getNextReadyCrawlHostGroup(JedisContext jedisContext) {
         try {
-            return getNextChgScript.run(jedisContext, BUSY_TIMEOUT);
+            long busyTimeout = FrontierService.getSettings().getBusyTimeout().toMillis();
+            return getNextChgScript.run(jedisContext, busyTimeout);
         } catch (Exception e) {
             LOG.warn(e.getMessage(), e);
             return null;
@@ -359,8 +415,11 @@ public class CrawlQueueManager implements AutoCloseable {
     }
 
     public void releaseCrawlHostGroup(JedisContext ctx, CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
-        LOG.debug("Releasing CrawlHostGroup: {}, with queue count: {}", crawlHostGroup.getId(), crawlHostGroup.getQueuedUriCount());
-        releaseChgScript.run(ctx, crawlHostGroup, nextFetchDelayMs);
+        // Ensure CHG is busy before releasing
+        if (updateBusyTimeout(ctx, crawlHostGroup, System.currentTimeMillis() + 500)) {
+            LOG.debug("Releasing CrawlHostGroup: {}, with queue count: {}", crawlHostGroup.getId(), crawlHostGroup.getQueuedUriCount());
+            releaseChgScript.run(ctx, crawlHostGroup, nextFetchDelayMs);
+        }
     }
 
     public void scheduleCrawlExecutionTimeout(String ceid, OffsetDateTime timeout) {

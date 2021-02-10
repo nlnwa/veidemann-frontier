@@ -77,7 +77,7 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
                         }
                     }
 
-                    ctx.startPageFetch();
+                    ctx.startPageFetch(exe);
                     try {
                         responseObserver.onNext(pageHarvestSpec);
                     } catch (StatusRuntimeException e) {
@@ -99,6 +99,9 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
                 }
                 break;
             case METRICS:
+                if (!ctx.setFetchCompleted(exe)) {
+                    return;
+                }
                 try {
                     exe.postFetchSuccess(value.getMetrics());
                 } catch (Exception e) {
@@ -106,6 +109,9 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
                 }
                 break;
             case OUTLINK:
+                if (!ctx.setFetchCompleted(exe)) {
+                    return;
+                }
                 try {
                     exe.queueOutlink(value.getOutlink());
                 } catch (Exception e) {
@@ -113,6 +119,9 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
                 }
                 break;
             case ERROR:
+                if (!ctx.setFetchCompleted(exe)) {
+                    return;
+                }
                 try {
                     exe.postFetchFailure(value.getError());
                 } catch (Exception e) {
@@ -127,6 +136,9 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
         try {
             try {
                 if (exe != null) {
+                    if (!ctx.setFetchCompleted(exe)) {
+                        return;
+                    }
                     Error error = ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError("Browser controller failed: " + t.toString());
                     DbUtil.writeLog(exe.getUri(), error.getCode());
                     exe.postFetchFailure(error);
@@ -150,6 +162,9 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
 
     @Override
     public void onCompleted() {
+        if (!ctx.setFetchCompleted(exe)) {
+            return;
+        }
         try {
             try {
                 exe.postFetchFinally();

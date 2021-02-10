@@ -124,9 +124,18 @@ public class StatusWrapper {
                 if (change.hasAddCurrentUri()) {
                     rMap.with("currentUriId", doc.g("currentUriId").default_(r.array()).setUnion(r.array(change.getAddCurrentUri().getId())));
                 }
+
+                // Remove queued uri from queue if change request asks for deletion
                 if (change.hasDeleteCurrentUri()) {
-                    rMap.with("currentUriId", doc.g("currentUriId").default_(r.array()).setDifference(r.array(change.getDeleteCurrentUri().getId())));
+                    boolean deleted = frontier.getCrawlQueueManager()
+                            .removeQUri(change.getDeleteCurrentUri(), change.getDeleteCurrentUri().getCrawlHostGroupId());
+
+                    if (deleted) {
+                        rMap.with("currentUriId", doc.g("currentUriId")
+                                .default_(r.array()).setDifference(r.array(change.getDeleteCurrentUri().getId())));
+                    }
                 }
+
                 return doc.merge(rMap)
                         .merge(d -> r.branch(
                                 // If the original document had one of the ended states, then keep the
@@ -168,11 +177,6 @@ public class StatusWrapper {
             CrawlExecutionStatus newDoc = ProtoUtils.rethinkToProto(changes.get(0).get("new_val"), CrawlExecutionStatus.class);
             if (wasNotEnded && newDoc.hasEndTime()) {
                 frontier.updateJobExecution(newDoc.getJobExecutionId());
-            }
-
-            // Remove queued uri from queue if change request asks for deletion
-            if (change.hasDeleteCurrentUri()) {
-                frontier.getCrawlQueueManager().removeQUri(change.getDeleteCurrentUri(), change.getDeleteCurrentUri().getCrawlHostGroupId(), true);
             }
 
             status = newDoc.toBuilder();

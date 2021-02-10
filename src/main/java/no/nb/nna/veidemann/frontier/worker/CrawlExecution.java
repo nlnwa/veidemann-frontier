@@ -172,18 +172,20 @@ public class CrawlExecution {
             switch (check) {
                 case DENIED:
                     delayMs = -1L;
-                    frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
+                    frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(preCheckUri, crawlHostGroup.getId());
                     status.removeCurrentUri(qUri).saveStatus();
                     postFetchFinally();
                     return null;
                 case RETRY:
-                    frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
+                    frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(preCheckUri, crawlHostGroup.getId());
                     postFetchFailure(qUri.getError());
                     postFetchFinally();
                     return null;
                 case OK:
                     // IP resolution, scope check and robots.txt evaluation done
-                    frontier.getCrawlQueueManager().removeQUri(preCheckUri, crawlHostGroup.getId(), false);
+                    if (!preCheckUri.getCrawlHostGroupId().equals(crawlHostGroup.getId())) {
+                        frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(preCheckUri, crawlHostGroup.getId());
+                    }
                     qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
             }
 
@@ -298,7 +300,7 @@ public class CrawlExecution {
                             // Seed failed; mark crawl as failed
                             endCrawl(CrawlExecutionStatus.State.FAILED, qUri.getError());
                         }
-                    } else if (!uriAdded && frontier.getCrawlQueueManager().countByCrawlExecution(getId()) == 0) {
+                    } else if (!uriAdded && frontier.getCrawlQueueManager().countByCrawlExecution(getId()) <= 0) {
                         endCrawl(CrawlExecutionStatus.State.FINISHED);
                     }
 
@@ -372,12 +374,12 @@ public class CrawlExecution {
             if (LimitsCheck.isRetryLimitReached(politenessConfig, qUri)) {
                 LOG.info("Failed fetching ({}) at attempt #{} due to retry limit", qUri, qUri.getRetries());
                 status.incrementDocumentsFailed();
-                frontier.getCrawlQueueManager().removeQUri(oldUri, crawlHostGroup.getId(), true);
+                frontier.getCrawlQueueManager().removeQUri(oldUri, crawlHostGroup.getId());
                 status.removeCurrentUri(qUri).saveStatus();
             } else {
                 LOG.info("Failed fetching ({}) at attempt #{}, retrying in {} seconds", qUri, qUri.getRetries(), politenessConfig.getPolitenessConfig().getRetryDelaySeconds());
                 qUri.setPriorityWeight(this.crawlConfig.getCrawlConfig().getPriorityWeight());
-                frontier.getCrawlQueueManager().removeQUri(oldUri, crawlHostGroup.getId(), false);
+                frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(oldUri, crawlHostGroup.getId());
                 if (qUri.forceAddUriToQueue(status)) {
                     uriAdded = true;
                 }
@@ -386,7 +388,7 @@ public class CrawlExecution {
             LOG.info("Failed fetching ({}). URI will not be retried", qUri);
             qUri.setError(error);
             status.incrementDocumentsFailed();
-            frontier.getCrawlQueueManager().removeQUri(qUri.getQueuedUri(), crawlHostGroup.getId(), true);
+            frontier.getCrawlQueueManager().removeQUri(qUri.getQueuedUri(), crawlHostGroup.getId());
             status.removeCurrentUri(qUri).saveStatus();
         }
     }

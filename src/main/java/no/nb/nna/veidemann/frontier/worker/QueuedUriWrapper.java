@@ -32,6 +32,7 @@ import no.nb.nna.veidemann.api.frontier.v1.QueuedUriOrBuilder;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckRequest;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse.Evaluation;
+import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.ChangeFeed;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
@@ -194,6 +195,7 @@ public class QueuedUriWrapper {
             return forceAddUriToQueue(status);
         }
         LOG.debug("Found already included URI: {}, skipping.", getUri());
+        setError(ExtraStatusCodes.ALREADY_SEEN.toFetchError("Uri was already harvested"));
         return false;
     }
 
@@ -326,7 +328,7 @@ public class QueuedUriWrapper {
         return wrapped.getError();
     }
 
-    QueuedUriWrapper setError(Error value) {
+    public QueuedUriWrapper setError(Error value) {
         wrapped.setError(value);
         return this;
     }
