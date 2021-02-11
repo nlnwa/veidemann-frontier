@@ -25,6 +25,7 @@ import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
+import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
@@ -124,9 +125,18 @@ public class StatusWrapper {
                 if (change.hasAddCurrentUri()) {
                     rMap.with("currentUriId", doc.g("currentUriId").default_(r.array()).setUnion(r.array(change.getAddCurrentUri().getId())));
                 }
+
+                // Remove queued uri from queue if change request asks for deletion
                 if (change.hasDeleteCurrentUri()) {
-                    rMap.with("currentUriId", doc.g("currentUriId").default_(r.array()).setDifference(r.array(change.getDeleteCurrentUri().getId())));
+                    boolean deleted = frontier.getCrawlQueueManager()
+                            .removeQUri(change.getDeleteCurrentUri(), change.getDeleteCurrentUri().getCrawlHostGroupId());
+
+                    if (deleted) {
+                        rMap.with("currentUriId", doc.g("currentUriId")
+                                .default_(r.array()).setDifference(r.array(change.getDeleteCurrentUri().getId())));
+                    }
                 }
+
                 return doc.merge(rMap)
                         .merge(d -> r.branch(
                                 // If the original document had one of the ended states, then keep the
@@ -166,13 +176,9 @@ public class StatusWrapper {
             // Check if this update was setting the end time
             boolean wasNotEnded = changes.get(0).get("old_val") == null || changes.get(0).get("old_val").get("endTime") == null;
             CrawlExecutionStatus newDoc = ProtoUtils.rethinkToProto(changes.get(0).get("new_val"), CrawlExecutionStatus.class);
+            frontier.getCrawlQueueManager().updateJobExecutionStatus(newDoc.getJobExecutionId(), status.getState(), newDoc.getState(), change);
             if (wasNotEnded && newDoc.hasEndTime()) {
-                frontier.updateJobExecution(newDoc.getJobExecutionId());
-            }
-
-            // Remove queued uri from queue if change request asks for deletion
-            if (change.hasDeleteCurrentUri()) {
-                frontier.getCrawlQueueManager().removeQUri(change.getDeleteCurrentUri(), change.getDeleteCurrentUri().getCrawlHostGroupId(), true);
+                updateJobExecution(conn, newDoc.getJobExecutionId());
             }
 
             status = newDoc.toBuilder();
@@ -180,6 +186,52 @@ public class StatusWrapper {
             dirty = false;
         }
         return this;
+    }
+
+    private void updateJobExecution(RethinkDbConnection conn, String jobExecutionId) throws DbException {
+        JobExecutionStatus tjes = frontier.getCrawlQueueManager().getTempJobExecutionStatus(jobExecutionId);
+
+        // Get a count of still running CrawlExecutions for this execution's JobExecution
+        Long notEndedCount = tjes.getExecutionsStateMap().entrySet().stream()
+                .filter(e -> e.getKey().matches("UNDEFINED|CREATED|FETCHING|SLEEPING"))
+                .map(e -> e.getValue().longValue())
+                .reduce(0L, Long::sum);
+
+        // If all CrawlExecutions are done for this JobExectuion, update the JobExecution with end statistics
+        if (notEndedCount == 0) {
+            LOG.debug("JobExecution '{}' finished, saving stats", jobExecutionId);
+
+            // Fetch the JobExecutionStatus object this CrawlExecution is part of
+            JobExecutionStatus jes = conn.executeGet("db-getJobExecutionStatus",
+                    r.table(Tables.JOB_EXECUTIONS.name).get(jobExecutionId),
+                    JobExecutionStatus.class);
+            if (jes == null) {
+                throw new IllegalStateException("Can't find JobExecution: " + jobExecutionId);
+            }
+
+            // Set JobExecution's status to FINISHED if it wasn't already aborted
+            JobExecutionStatus.State state;
+            switch (jes.getState()) {
+                case DIED:
+                case FAILED:
+                case ABORTED_MANUAL:
+                    state = jes.getState();
+                    break;
+                default:
+                    state = JobExecutionStatus.State.FINISHED;
+                    break;
+            }
+
+            // Update aggregated statistics
+            JobExecutionStatus.Builder jesBuilder = jes.toBuilder()
+                    .setState(state)
+                    .setEndTime(ProtoUtils.getNowTs());
+            jesBuilder.mergeFrom(tjes);
+
+            conn.exec("db-saveJobExecutionStatus",
+                    r.table(Tables.JOB_EXECUTIONS.name).get(jesBuilder.getId()).update(ProtoUtils.protoToRethink(jesBuilder)));
+            frontier.getCrawlQueueManager().removeRedisJobExecution(jobExecutionId);
+        }
     }
 
     public String getId() {

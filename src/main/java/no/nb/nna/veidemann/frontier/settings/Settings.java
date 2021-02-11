@@ -17,6 +17,8 @@ package no.nb.nna.veidemann.frontier.settings;
 
 import no.nb.nna.veidemann.commons.settings.CommonSettings;
 
+import java.time.Duration;
+
 /**
  * Configuration settings for Veidemann Frontier.
  */
@@ -49,6 +51,16 @@ public class Settings extends CommonSettings {
     private String redisHost;
 
     private String redisPort;
+
+    private Duration busyTimeout;
+
+    public Duration getBusyTimeout() {
+        return busyTimeout;
+    }
+
+    public void setBusyTimeout(Duration busyTimeout) {
+        this.busyTimeout = busyTimeout;
+    }
 
     public int getApiPort() {
         return apiPort;

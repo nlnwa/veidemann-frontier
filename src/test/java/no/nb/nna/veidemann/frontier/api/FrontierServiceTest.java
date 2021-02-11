@@ -72,6 +72,8 @@ public class FrontierServiceTest {
             when(frontierMock.getConfig(any())).thenReturn(ConfigObject.newBuilder().build());
             when(crawlQueueManagerMock.getNextToFetch(any())).thenReturn(new CrawlableUri(null, uri1));
             when(crawlQueueManagerMock.createCrawlExecution(any(), any())).thenReturn(crawlExecutionMock);
+            when(crawlQueueManagerMock.getBusyTimeout(any())).thenReturn(System.currentTimeMillis() + 10000);
+            when(crawlQueueManagerMock.updateBusyTimeout(any(), any())).thenReturn(true);
 
             when(crawlExecutionMock.getUri()).thenReturn(queuedUriWrapperMock1);
             when(crawlExecutionMock.preFetch()).thenReturn(harvestSpec1);
@@ -98,7 +100,7 @@ public class FrontierServiceTest {
             inProcessServer.shutdown();
             inProcessServer.blockUntilShutdown();
 
-            verify(frontierMock, times(14)).getCrawlQueueManager();
+            verify(frontierMock, times(37)).getCrawlQueueManager();
             verify(frontierMock, atLeastOnce()).checkHealth();
             verify(crawlExecutionMock, times(14)).getUri();
             verify(crawlExecutionMock, times(7)).preFetch();
@@ -110,6 +112,7 @@ public class FrontierServiceTest {
             verify(crawlExecutionMock, times(1))
                     .postFetchFailure(ExtraStatusCodes.RUNTIME_EXCEPTION
                             .toFetchError("java.lang.RuntimeException: Simulated render exception"));
+            verify(crawlExecutionMock, times(23)).getCrawlHostGroup();
 
             verifyNoMoreInteractions(frontierMock, crawlExecutionMock);
         }

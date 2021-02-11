@@ -1,11 +1,21 @@
 package no.nb.nna.veidemann.frontier.api;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.ServerCallStreamObserver;
+import no.nb.nna.veidemann.api.commons.v1.Error;
+import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
+import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
+import no.nb.nna.veidemann.frontier.worker.DbUtil;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,6 +32,9 @@ public class Context {
 
     static final Lock lock = new ReentrantLock();
     static final Condition notTerminated = lock.newCondition();
+
+    static final ScheduledExecutorService timoutThread = Executors.newScheduledThreadPool(
+            1, new ThreadFactoryBuilder().setNameFormat("fetch-timeout-%d").build());
 
     public Context(Frontier frontier) {
         isShutdown = new AtomicBoolean(false);
@@ -100,6 +113,8 @@ public class Context {
         private final ServerCallStreamObserver responseObserver;
         private final AtomicBoolean observerCompleted = new AtomicBoolean(false);
         private final AtomicBoolean pageFetchStarted = new AtomicBoolean(false);
+        private final AtomicBoolean fetchReturned = new AtomicBoolean(false);
+        private ScheduledFuture<Void> timeout;
 
         private RequestContext(Frontier frontier, ServerCallStreamObserver responseObserver) {
             super(frontier);
@@ -116,9 +131,36 @@ public class Context {
             return responseObserver;
         }
 
-        public void startPageFetch() {
+        public void startPageFetch(CrawlExecution exe) {
             if (pageFetchStarted.compareAndSet(false, true)) {
                 amountOfActivePageFetchesCounter.incrementAndGet();
+
+                Long epochMillis = getCrawlQueueManager().getBusyTimeout(exe.getCrawlHostGroup());
+                if (epochMillis != null) {
+                    // Schedule timeout function to run when CHG times out while waiting for Harvester.
+                    timeout = timoutThread.schedule(() -> {
+                        // Timeout waiting for Harvester.
+                        // Extend CHG timeout to allow Frontier to clean up.
+                        boolean chgBusy = getCrawlQueueManager()
+                                .updateBusyTimeout(exe.getCrawlHostGroup(), System.currentTimeMillis() + 60000L);
+                        if (chgBusy) {
+                            try {
+                                StatusRuntimeException ex = Status.DEADLINE_EXCEEDED.asRuntimeException();
+                                Error err = ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError("Timeout waiting for Harvester");
+                                exe.getUri().setError(err);
+                                DbUtil.writeLog(exe.getUri());
+                                exe.postFetchFailure(err);
+                                exe.postFetchFinally();
+                                responseObserver.onError(ex);
+                                setObserverCompleted();
+                            } catch (Exception e) {
+                                LOG.warn("Error while handling Harvester timeout", e);
+                            }
+                        }
+                        return null;
+                    }, epochMillis - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
+                }
+
                 LOG.trace("Page fetch started. Currently active page fetches: {}", amountOfActivePageFetchesCounter.get());
             }
         }
@@ -138,6 +180,15 @@ public class Context {
                 }
                 LOG.trace("Client disconnected. Currently active clients: {}. Currently active page fetches: {}", amountOfActiveObserversCounter.get(), amountOfActivePageFetchesCounter.get());
             }
+        }
+
+        public boolean setFetchCompleted(CrawlExecution exe) {
+            if (timeout != null) {
+                // Stop the timeout cancel handler
+                timeout.cancel(false);
+            }
+            // Set CHG busy timout to ensure postfetch has time to do its job.
+            return getCrawlQueueManager().updateBusyTimeout(exe.getCrawlHostGroup(), System.currentTimeMillis() + 60000L);
         }
     }
 }
