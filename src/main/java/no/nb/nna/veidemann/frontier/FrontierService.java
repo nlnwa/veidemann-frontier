@@ -77,7 +77,7 @@ public class FrontierService {
         }
 
         JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
-        jedisPoolConfig.setMaxTotal(16);
+        jedisPoolConfig.setMaxTotal(24);
         try (DbService db = DbService.configure(SETTINGS);
 
              JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getRedisHost() + ":" + SETTINGS.getRedisPort()));

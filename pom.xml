@@ -28,7 +28,7 @@
 
         <veidemann.api.version>1.0.0-beta20</veidemann.api.version>
         <veidemann.commons.version>0.4.9</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.5.5</veidemann.rethinkdbadapter.version>
+        <veidemann.rethinkdbadapter.version>0.5.7</veidemann.rethinkdbadapter.version>
 
         <com.github.netflix.concurrency-limits.version>0.3.7</com.github.netflix.concurrency-limits.version>
         <log4j.version>2.13.3</log4j.version>
@@ -390,6 +390,7 @@
                                         <portName>robotsevaluator.port</portName>
                                         <portName>ooshandler.port</portName>
                                         <portName>scopeChecker.port</portName>
+                                        <portName>redis.port</portName>
                                     </portNames>
                                 </configuration>
                             </execution>
@@ -540,7 +541,7 @@
                                             <REDIS_HOST>redis</REDIS_HOST>
                                             <!--suppress UnresolvedMavenProperty -->
                                             <REDIS_PORT>6379</REDIS_PORT>
-<!--                                            <LOCK_REDIS_PORT>${redis.port}</LOCK_REDIS_PORT>-->
+                                            <BUSY_TIMEOUT>4s</BUSY_TIMEOUT>
                                         </env>
                                         <log>
                                             <enabled>true</enabled>

@@ -3,7 +3,10 @@ package no.nb.nna.veidemann.frontier.db;
 import com.google.common.hash.Hashing;
 import com.google.common.primitives.Longs;
 import com.rethinkdb.RethinkDB;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChangeOrBuilder;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
+import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.CrawlableUri;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
@@ -20,6 +23,8 @@ import no.nb.nna.veidemann.frontier.db.script.ChgNextScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgQueueCountScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgReleaseScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgUpdateBusyTimeoutScript;
+import no.nb.nna.veidemann.frontier.db.script.JobExecutionGetScript;
+import no.nb.nna.veidemann.frontier.db.script.JobExecutionUpdateScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript;
 import no.nb.nna.veidemann.frontier.db.script.NextUriScript.NextUriScriptResult;
 import no.nb.nna.veidemann.frontier.db.script.RedisJob.JedisContext;
@@ -53,6 +58,7 @@ public class CrawlQueueManager implements AutoCloseable {
 
     public static final String UEID = "UEID:";
     public static final String UCHG = "UCHG:";
+    public static final String JOB_EXECUTION_PREFIX = "JEID:";
     public static final String CRAWL_EXECUTION_ID_COUNT_KEY = "EIDC";
     public static final String CHG_PREFIX = "CHG:";
     public static final String QUEUE_COUNT_TOTAL_KEY = "QCT";
@@ -71,6 +77,8 @@ public class CrawlQueueManager implements AutoCloseable {
     final ChgReleaseScript releaseChgScript;
     final ChgQueueCountScript countChgScript;
     final ChgUpdateBusyTimeoutScript chgUpdateBusyTimeoutScript;
+    final JobExecutionGetScript jobExecutionGetScript;
+    final JobExecutionUpdateScript jobExecutionUpdateScript;
 
     private final CrawlQueueWorker chgManager;
     private final TimeoutSupplier<CrawlableUri> nextFetchSupplier;
@@ -85,6 +93,8 @@ public class CrawlQueueManager implements AutoCloseable {
         releaseChgScript = new ChgReleaseScript();
         countChgScript = new ChgQueueCountScript();
         chgUpdateBusyTimeoutScript = new ChgUpdateBusyTimeoutScript();
+        jobExecutionGetScript = new JobExecutionGetScript();
+        jobExecutionUpdateScript = new JobExecutionUpdateScript();
 
         this.chgManager = new CrawlQueueWorker(frontier, conn, jedisPool);
         this.nextFetchSupplier = new TimeoutSupplier<>(32, 15, TimeUnit.SECONDS, 4,
@@ -237,10 +247,6 @@ public class CrawlQueueManager implements AutoCloseable {
         return deleted;
     }
 
-    String key(String jobId) {
-        return URI_ALREADY_INCLUDED_PREFIX + jobId;
-    }
-
     /**
      * Atomically checks if a uri is already included in queue for a JobExecution and adds the uri
      * to the datastructure such that the next call to this function with the same QueuedUri will always return false.
@@ -252,18 +258,19 @@ public class CrawlQueueManager implements AutoCloseable {
         String jobExecutionId = qu.getJobExecutionId();
         String uriHash = uriHash(qu.getIncludedCheckUri());
         try (Jedis jedis = jedisPool.getResource()) {
-            return jedis.sadd(key(jobExecutionId), uriHash) == 1;
+            return jedis.sadd(URI_ALREADY_INCLUDED_PREFIX + jobExecutionId, uriHash) == 1;
         }
     }
 
     /**
-     * Resets the already included datastructure for a JobExecution.
+     * Resets the stats and already included datastructures for a JobExecution.
      *
      * @param jobExecutionId
      */
-    public void removeAlreadyIncludedQueue(String jobExecutionId) {
+    public void removeRedisJobExecution(String jobExecutionId) {
         try (Jedis jedis = jedisPool.getResource()) {
-            jedis.del(key(jobExecutionId));
+            jedis.del(URI_ALREADY_INCLUDED_PREFIX + jobExecutionId);
+            jedis.del(JOB_EXECUTION_PREFIX + jobExecutionId);
         }
     }
 
@@ -431,6 +438,22 @@ public class CrawlQueueManager implements AutoCloseable {
     public void removeCrawlExecutionFromTimeoutSchedule(String executionId) {
         try (Jedis jedis = jedisPool.getResource()) {
             jedis.zrem(CRAWL_EXECUTION_RUNNING_KEY, executionId);
+        }
+    }
+
+    public JobExecutionStatus getTempJobExecutionStatus(String jobExecutionId) {
+        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+            return getTempJobExecutionStatus(ctx, jobExecutionId);
+        }
+    }
+
+    public JobExecutionStatus getTempJobExecutionStatus(JedisContext ctx, String jobExecutionId) {
+        return jobExecutionGetScript.run(ctx, jobExecutionId);
+    }
+
+    public void updateJobExecutionStatus(String jobExecutionId, State oldState, State newState, CrawlExecutionStatusChangeOrBuilder change) {
+        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+            jobExecutionUpdateScript.run(ctx, jobExecutionId, oldState, newState, change);
         }
     }
 

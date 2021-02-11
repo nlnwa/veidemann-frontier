@@ -21,15 +21,14 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.rethinkdb.RethinkDB;
 import com.rethinkdb.gen.ast.Insert;
-import com.rethinkdb.model.MapObject;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
-import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.client.DnsServiceClient;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
@@ -279,109 +278,10 @@ public class Frontier implements AutoCloseable {
         rMap.put("lastChangeTime", r.now());
         rMap.put("createdTime", r.now());
 
+        crawlQueueManager.updateJobExecutionStatus(jobExecutionId, State.UNDEFINED, State.CREATED, CrawlExecutionStatusChange.getDefaultInstance());
+
         Insert qry = r.table(Tables.EXECUTIONS.name).insert(rMap);
         return conn.executeInsert("db-createExecutionStatus", qry, CrawlExecutionStatus.class);
-    }
-
-    public void updateJobExecution(String jobExecutionId) throws DbException {
-        // Get a count of still running CrawlExecutions for this execution's JobExecution
-        Long notEndedCount = conn.exec("db-updateJobExecution",
-                r.table(Tables.EXECUTIONS.name)
-                        .between(r.array(jobExecutionId, r.minval()), r.array(jobExecutionId, r.maxval()))
-                        .optArg("index", "jobExecutionId_seedId")
-                        .filter(row -> row.g("state").match("UNDEFINED|CREATED|FETCHING|SLEEPING"))
-                        .count()
-        );
-
-        // If all CrawlExecutions are done for this JobExectuion, update the JobExecution with end statistics
-        if (notEndedCount == 0) {
-            LOG.debug("JobExecution '{}' finished, saving stats", jobExecutionId);
-            crawlQueueManager.removeAlreadyIncludedQueue(jobExecutionId);
-
-            // Fetch the JobExecutionStatus object this CrawlExecution is part of
-            JobExecutionStatus jes = conn.executeGet("db-getJobExecutionStatus",
-                    r.table(Tables.JOB_EXECUTIONS.name).get(jobExecutionId),
-                    JobExecutionStatus.class);
-            if (jes == null) {
-                throw new IllegalStateException("Can't find JobExecution: " + jobExecutionId);
-            }
-
-            // Set JobExecution's status to FINISHED if it wasn't already aborted
-            JobExecutionStatus.State state;
-            switch (jes.getState()) {
-                case DIED:
-                case FAILED:
-                case ABORTED_MANUAL:
-                    state = jes.getState();
-                    break;
-                default:
-                    state = JobExecutionStatus.State.FINISHED;
-                    break;
-            }
-
-            // Update aggregated statistics
-            Map sums = summarizeJobExecutionStats(jobExecutionId);
-            JobExecutionStatus.Builder jesBuilder = jes.toBuilder()
-                    .setState(state)
-                    .setEndTime(ProtoUtils.getNowTs())
-                    .setDocumentsCrawled((long) sums.get("documentsCrawled"))
-                    .setDocumentsDenied((long) sums.get("documentsDenied"))
-                    .setDocumentsFailed((long) sums.get("documentsFailed"))
-                    .setDocumentsOutOfScope((long) sums.get("documentsOutOfScope"))
-                    .setDocumentsRetried((long) sums.get("documentsRetried"))
-                    .setUrisCrawled((long) sums.get("urisCrawled"))
-                    .setBytesCrawled((long) sums.get("bytesCrawled"));
-
-            for (CrawlExecutionStatus.State s : CrawlExecutionStatus.State.values()) {
-                jesBuilder.putExecutionsState(s.name(), ((Long) sums.get(s.name())).intValue());
-            }
-
-            conn.exec("db-saveJobExecutionStatus",
-                    r.table(Tables.JOB_EXECUTIONS.name).get(jesBuilder.getId()).update(ProtoUtils.protoToRethink(jesBuilder)));
-        }
-    }
-
-    private Map summarizeJobExecutionStats(String jobExecutionId) throws DbException {
-        String[] EXECUTIONS_STAT_FIELDS = new String[]{"documentsCrawled", "documentsDenied",
-                "documentsFailed", "documentsOutOfScope", "documentsRetried", "urisCrawled", "bytesCrawled"};
-
-        return conn.exec("db-summarizeJobExecutionStats",
-                r.table(Tables.EXECUTIONS.name)
-                        .between(r.array(jobExecutionId, r.minval()), r.array(jobExecutionId, r.maxval()))
-                        .optArg("index", "jobExecutionId_seedId")
-                        .map(doc -> {
-                                    MapObject m = r.hashMap();
-                                    for (String f : EXECUTIONS_STAT_FIELDS) {
-                                        m.with(f, doc.getField(f).default_(0));
-                                    }
-                                    for (CrawlExecutionStatus.State s : CrawlExecutionStatus.State.values()) {
-                                        m.with(s.name(), r.branch(doc.getField("state").eq(s.name()), 1, 0));
-                                    }
-                                    return m;
-                                }
-                        )
-                        .reduce((left, right) -> {
-                                    MapObject m = r.hashMap();
-                                    for (String f : EXECUTIONS_STAT_FIELDS) {
-                                        m.with(f, left.getField(f).add(right.getField(f)));
-                                    }
-                                    for (CrawlExecutionStatus.State s : CrawlExecutionStatus.State.values()) {
-                                        m.with(s.name(), left.getField(s.name()).add(right.getField(s.name())));
-                                    }
-                                    return m;
-                                }
-                        ).default_((doc) -> {
-                            MapObject m = r.hashMap();
-                            for (String f : EXECUTIONS_STAT_FIELDS) {
-                                m.with(f, 0);
-                            }
-                            for (CrawlExecutionStatus.State s : CrawlExecutionStatus.State.values()) {
-                                m.with(s.name(), 0);
-                            }
-                            return m;
-                        }
-                )
-        );
     }
 
     public ConfigObject getConfig(ConfigRef ref) throws DbQueryException {
