@@ -21,6 +21,7 @@ import com.rethinkdb.gen.ast.ReqlFunction1;
 import com.rethinkdb.gen.ast.Update;
 import com.rethinkdb.model.MapObject;
 import no.nb.nna.veidemann.api.commons.v1.Error;
+import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
@@ -28,6 +29,7 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbException;
+import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.ProtoUtils;
 import no.nb.nna.veidemann.db.RethinkDbConnection;
@@ -47,12 +49,11 @@ public class StatusWrapper {
     private static final Logger LOG = LoggerFactory.getLogger(StatusWrapper.class);
 
     private CrawlExecutionStatus.Builder status;
-
     private CrawlExecutionStatusChange.Builder change;
-
     private boolean dirty;
-
     private final Frontier frontier;
+    private ConfigObject jobConfig;
+    private ConfigObject crawlConfig;
 
     static final RethinkDB r = RethinkDB.r;
 
@@ -88,10 +89,8 @@ public class StatusWrapper {
                 switch (change.getState()) {
                     case UNDEFINED:
                         break;
-                    case FETCHING:
-                    case SLEEPING:
                     case CREATED:
-                        throw new IllegalArgumentException("Only the final states are allowed to be updated");
+                        throw new IllegalArgumentException("Not allowed to set state back to CREATED");
                     default:
                         rMap.with("state", change.getState().name());
                 }
@@ -129,7 +128,7 @@ public class StatusWrapper {
                 // Remove queued uri from queue if change request asks for deletion
                 if (change.hasDeleteCurrentUri()) {
                     boolean deleted = frontier.getCrawlQueueManager()
-                            .removeQUri(change.getDeleteCurrentUri(), change.getDeleteCurrentUri().getCrawlHostGroupId());
+                            .removeQUri(change.getDeleteCurrentUri());
 
                     if (deleted) {
                         rMap.with("currentUriId", doc.g("currentUriId")
@@ -145,14 +144,16 @@ public class StatusWrapper {
                                 r.hashMap("state", doc.g("state")).with("endTime",
                                         r.branch(doc.hasFields("endTime"), doc.g("endTime"), d.g("endTime").default_((Object) null))),
 
-                                // If the change request contained an end state, use it
+                                // If the change request contained an end state, use it and add set start time to current time if missing.
                                 d.g("state").match("FINISHED|ABORTED_TIMEOUT|ABORTED_SIZE|ABORTED_MANUAL|FAILED|DIED"),
-                                r.hashMap("state", d.g("state")),
+                                r.hashMap("state", d.g("state")).with("startTime",
+                                        r.branch(doc.hasFields("startTime"), doc.g("startTime"), d.g("startTime").default_(r.now()))),
 
-                                // Set the state to fetching if currentUriId contains at least one value, otherwise set state to sleeping.
-                                d.g("currentUriId").default_(r.array()).count().gt(0),
-                                r.hashMap("state", "FETCHING"),
-                                r.hashMap("state", "SLEEPING")))
+                                // If the change request contained FETCHING or SLEEPING state and the original document had CREATED, FETCHING or SLEEPING state,
+                                // then update with changed state
+                                d.g("state").match("FETCHING|SLEEPING").and(doc.g("state").match("CREATED|FETCHING|SLEEPING")),
+                                r.hashMap("state", d.g("state")),
+                                r.hashMap("state", doc.g("state"))))
 
                         // Set start time if not set and state is fetching
                         .merge(d -> r.branch(doc.hasFields("startTime").not().and(d.g("state").match("FETCHING")),
@@ -238,8 +239,18 @@ public class StatusWrapper {
         return status.getId();
     }
 
-    public ConfigRef getJobId() {
-        return ConfigRef.newBuilder().setKind(Kind.crawlJob).setId(status.getJobId()).build();
+    public ConfigObject getCrawlJobConfig() throws DbQueryException {
+        if (jobConfig == null) {
+            jobConfig = frontier.getConfig(ConfigRef.newBuilder().setKind(Kind.crawlJob).setId(status.getJobId()).build());
+        }
+        return jobConfig;
+    }
+
+    public ConfigObject getCrawlConfig() throws DbQueryException {
+        if (crawlConfig == null) {
+            crawlConfig = frontier.getConfig(getCrawlJobConfig().getCrawlJob().getCrawlConfigRef());
+        }
+        return crawlConfig;
     }
 
     public String getJobExecutionId() {
@@ -365,7 +376,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper removeCurrentUri(QueuedUriWrapper uri) {
-        getChange().setDeleteCurrentUri(uri.getQueuedUri());
+        getChange().setDeleteCurrentUri(uri.getQueuedUriForRemoval());
         return this;
     }
 

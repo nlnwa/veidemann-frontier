@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-package no.nb.nna.veidemann.frontier;
+package no.nb.nna.veidemann.frontier.testutil;
 
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.Kind;
+import no.nb.nna.veidemann.api.config.v1.PolitenessConfig.RobotsPolicy;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest.Builder;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
@@ -37,16 +38,28 @@ import java.util.concurrent.ForkJoinPool;
 public class SetupCrawl {
     ConfigAdapter c = DbService.getInstance().getConfigAdapter();
     ExecutionsAdapter e = DbService.getInstance().getExecutionsAdapter();
-    List<ConfigObject> seeds = new ArrayList<>();
-    ConfigObject crawlJob;
+    public List<ConfigObject> seeds = new ArrayList<>();
+    public ConfigObject crawlJob;
 
     public void setup(int seedCount) throws DbException {
+
+        ConfigObject.Builder defaultCrawlHostGroupConfig = c.getConfigObject(ConfigRef.newBuilder()
+                .setKind(Kind.crawlHostGroupConfig).setId("chg-default")
+                .build())
+                .toBuilder();
+        defaultCrawlHostGroupConfig.getCrawlHostGroupConfigBuilder()
+                .setMinTimeBetweenPageLoadMs(1)
+                .setMaxTimeBetweenPageLoadMs(10)
+                .setDelayFactor(.5f)
+                .setRetryDelaySeconds(2);
+        c.saveConfigObject(defaultCrawlHostGroupConfig.build());
 
         ConfigObject.Builder politenessBuilder = ConfigObject.newBuilder()
                 .setApiVersion("v1")
                 .setKind(Kind.politenessConfig);
         politenessBuilder.getMetaBuilder().setName("stress");
-        politenessBuilder.getPolitenessConfigBuilder().setDelayFactor(1f);
+        politenessBuilder.getPolitenessConfigBuilder()
+                .setRobotsPolicy(RobotsPolicy.OBEY_ROBOTS);
         ConfigObject politeness = c.saveConfigObject(politenessBuilder.build());
 
         ConfigObject.Builder browserConfigBuilder = ConfigObject.newBuilder()
@@ -66,6 +79,7 @@ public class SetupCrawl {
                 .setKind(Kind.crawlConfig);
         crawlConfigBuilder.getMetaBuilder().setName("stress");
         crawlConfigBuilder.getCrawlConfigBuilder()
+                .setPriorityWeight(1)
                 .setPolitenessRef(ApiTools.refForConfig(politeness))
                 .setBrowserConfigRef(ApiTools.refForConfig(browserConfig))
                 .setCollectionRef(ApiTools.refForConfig(collection));
@@ -111,8 +125,18 @@ public class SetupCrawl {
             ConfigObject seed = c.saveConfigObject(seedBuilder.build());
             seeds.add(seed);
             System.out.print(".");
+            if (i == 10) {
+                seed = c.saveConfigObject(seedBuilder.build());
+                seeds.add(seed);
+            }
         }
         System.out.println(" DONE");
+        System.out.flush();
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException interruptedException) {
+            interruptedException.printStackTrace();
+        }
     }
 
     public JobExecutionStatus runCrawl(FrontierGrpc.FrontierBlockingStub frontierStub) throws DbException {

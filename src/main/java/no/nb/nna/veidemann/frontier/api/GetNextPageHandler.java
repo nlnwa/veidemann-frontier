@@ -9,21 +9,18 @@ import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
-import no.nb.nna.veidemann.commons.db.CrawlableUri;
-import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.frontier.api.Context.RequestContext;
-import no.nb.nna.veidemann.frontier.worker.CrawlExecution;
-import no.nb.nna.veidemann.frontier.worker.DbUtil;
+import no.nb.nna.veidemann.frontier.worker.IllegalSessionException;
+import no.nb.nna.veidemann.frontier.worker.PostFetchHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.RESCHEDULE_DELAY;
-
 public class GetNextPageHandler implements StreamObserver<PageHarvest> {
     private static final Logger LOG = LoggerFactory.getLogger(GetNextPageHandler.class);
-    CrawlExecution exe;
     final RequestContext ctx;
     final ServerCallStreamObserver responseObserver;
+    private String sessionToken;
+    private PostFetchHandler postFetchHandler;
 
     public GetNextPageHandler(RequestContext ctx) {
         this.responseObserver = ctx.getResponseObserver();
@@ -51,42 +48,20 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
                 }
                 try {
                     PageHarvestSpec pageHarvestSpec = null;
-                    while (pageHarvestSpec == null) {
-                        while (exe == null && !ctx.isCancelled()) {
-                            CrawlableUri cUri = ctx.getCrawlQueueManager().getNextToFetch(ctx);
-                            if (ctx.isCancelled()) {
-                                LOG.debug("Context cancelled");
-                                if (cUri != null) {
-                                    ctx.getCrawlQueueManager().releaseCrawlHostGroup(cUri.getCrawlHostGroup(), RESCHEDULE_DELAY);
-                                }
-                                sendError();
-                                return;
-                            }
-                            exe = ctx.getCrawlQueueManager().createCrawlExecution(ctx, cUri);
-                        }
-                        if (exe == null) {
+                    while (pageHarvestSpec == null && !ctx.isCancelled()) {
+                        pageHarvestSpec = ctx.getCrawlQueueManager().getNextToFetch(ctx);
+                        if (pageHarvestSpec == null || ctx.isCancelled()) {
+                            LOG.trace("Context cancelled");
                             sendError();
                             return;
                         }
-
-                        LOG.trace("Found candidate URI {}", exe.getUri());
-                        pageHarvestSpec = exe.preFetch();
-                        if (pageHarvestSpec == null) {
-                            LOG.trace("Prefetch denied fetch of {}", exe.getUri());
-                            exe = null;
-                        }
                     }
-
-                    ctx.startPageFetch(exe);
+                    sessionToken = pageHarvestSpec.getSessionToken();
+                    ctx.startPageFetch();
                     try {
                         responseObserver.onNext(pageHarvestSpec);
                     } catch (StatusRuntimeException e) {
                         if (e.getStatus().getCode() == Code.CANCELLED) {
-                            try {
-                                exe.postFetchFailure(ExtraStatusCodes.CANCELED_BY_BROWSER.toFetchError("Browser controller canceled request"));
-                            } catch (DbException e2) {
-                                LOG.error("Could not handle failure", e2);
-                            }
                             sendError();
                             return;
                         } else {
@@ -99,31 +74,40 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
                 }
                 break;
             case METRICS:
-                if (!ctx.setFetchCompleted(exe)) {
-                    return;
-                }
                 try {
-                    exe.postFetchSuccess(value.getMetrics());
+                    if (postFetchHandler == null) {
+                        postFetchHandler = new PostFetchHandler(sessionToken, ctx.getFrontier());
+                    }
+                    ctx.setFetchCompleted();
+                    postFetchHandler.postFetchSuccess(value.getMetrics());
+                } catch (IllegalSessionException e) {
+                    sendError();
                 } catch (Exception e) {
                     LOG.warn("Failed to execute postFetchSuccess: {}", e.toString(), e);
                 }
                 break;
             case OUTLINK:
-                if (!ctx.setFetchCompleted(exe)) {
-                    return;
-                }
                 try {
-                    exe.queueOutlink(value.getOutlink());
+                    if (postFetchHandler == null) {
+                        postFetchHandler = new PostFetchHandler(sessionToken, ctx.getFrontier());
+                    }
+                    ctx.setFetchCompleted();
+                    postFetchHandler.queueOutlink(value.getOutlink());
+                } catch (IllegalSessionException e) {
+                    sendError();
                 } catch (Exception e) {
                     LOG.warn("Could not queue outlink '{}'", value.getOutlink().getUri(), e);
                 }
                 break;
             case ERROR:
-                if (!ctx.setFetchCompleted(exe)) {
-                    return;
-                }
                 try {
-                    exe.postFetchFailure(value.getError());
+                    if (postFetchHandler == null) {
+                        postFetchHandler = new PostFetchHandler(sessionToken, ctx.getFrontier());
+                    }
+                    ctx.setFetchCompleted();
+                    postFetchHandler.postFetchFailure(value.getError());
+                } catch (IllegalSessionException e) {
+                    sendError();
                 } catch (Exception e) {
                     LOG.warn("Failed to execute postFetchFailure: {}", e.toString(), e);
                 }
@@ -135,23 +119,13 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
     public void onError(Throwable t) {
         try {
             try {
-                if (exe != null) {
-                    if (!ctx.setFetchCompleted(exe)) {
-                        return;
-                    }
-                    Error error = ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError("Browser controller failed: " + t.toString());
-                    DbUtil.writeLog(exe.getUri(), error.getCode());
-                    exe.postFetchFailure(error);
-                } else {
-                    LOG.debug("Error before any action {}", t.getMessage());
+                if (postFetchHandler == null) {
+                    postFetchHandler = new PostFetchHandler(sessionToken, ctx.getFrontier());
                 }
-            } catch (DbException e) {
-                LOG.error("Could not handle failure", e);
-            }
-            try {
-                if (exe != null) {
-                    exe.postFetchFinally();
-                }
+                ctx.setFetchCompleted();
+                Error error = ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError("Browser controller failed: " + t.toString());
+                postFetchHandler.postFetchFailure(error);
+                postFetchHandler.postFetchFinally();
             } catch (Exception e) {
                 LOG.error("Failed to execute postFetchFinally after error: {}", e.toString(), e);
             }
@@ -162,19 +136,25 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
 
     @Override
     public void onCompleted() {
-        if (!ctx.setFetchCompleted(exe)) {
-            return;
-        }
         try {
             try {
-                exe.postFetchFinally();
-                LOG.trace("Done with uri {}", exe.getUri().getUri());
-                exe = null;
+                if (postFetchHandler == null) {
+                    postFetchHandler = new PostFetchHandler(sessionToken, ctx.getFrontier());
+                }
+                ctx.setFetchCompleted();
+                postFetchHandler.postFetchFinally();
+                LOG.trace("Done with uri {}", postFetchHandler.getUri().getUri());
+                postFetchHandler = null;
+            } catch (IllegalSessionException e) {
+                sendError();
+                return;
             } catch (Exception e) {
                 LOG.error("Failed to execute postFetchFinally: {}", e.toString(), e);
             }
             try {
-                responseObserver.onCompleted();
+                if (!responseObserver.isCancelled()) {
+                    responseObserver.onCompleted();
+                }
             } catch (Exception e) {
                 LOG.error("Failed to execute onCompleted: {}", e.toString(), e);
             }

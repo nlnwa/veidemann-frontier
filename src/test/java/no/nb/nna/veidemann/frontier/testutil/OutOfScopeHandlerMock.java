@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package no.nb.nna.veidemann.frontier;
+package no.nb.nna.veidemann.frontier.testutil;
 
 import com.google.protobuf.Empty;
 import io.grpc.Server;
@@ -26,8 +26,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
-public class OutOfScopeHandlerMock {
+public class OutOfScopeHandlerMock implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(OutOfScopeHandlerMock.class);
 
     final Server server;
@@ -36,8 +37,15 @@ public class OutOfScopeHandlerMock {
         server = ServerBuilder.forPort(port).addService(new OosHandler()).build();
     }
 
-    public void start() throws IOException {
+    public OutOfScopeHandlerMock start() throws IOException {
         server.start();
+        return this;
+    }
+
+    @Override
+    public void close() throws Exception {
+        server.shutdownNow();
+        server.awaitTermination(5, TimeUnit.SECONDS);
     }
 
     public class OosHandler extends OosHandlerGrpc.OosHandlerImplBase {

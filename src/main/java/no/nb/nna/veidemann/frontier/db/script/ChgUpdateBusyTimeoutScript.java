@@ -6,24 +6,21 @@ import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
 import java.util.List;
 
 public class ChgUpdateBusyTimeoutScript extends RedisJob<Long> {
-    final static long WAIT_TIME_MS = 5000;
-
-    final LuaScript updateChgBusyTimeoutScript;
+    final LuaScript chgUpdateBusyTimeoutScript;
 
     public ChgUpdateBusyTimeoutScript() {
         super("chgUpdateBusyTimeoutScript");
-        updateChgBusyTimeoutScript = new LuaScript("chg_update_busy_timeout.lua");
+        chgUpdateBusyTimeoutScript = new LuaScript("chg_update_busy_timeout.lua");
     }
 
-    public Long run(JedisContext ctx, String chg, Long timeoutTimeMs) {
+    public Long run(JedisContext ctx, String crawlHostGroupId, String sessionToken, Long timeoutTimeMs) {
+        String chgKey = CrawlQueueManager.CHG_PREFIX + crawlHostGroupId;
+
         return execute(ctx, jedis -> {
-            List<String> keys = ImmutableList.of(CrawlQueueManager.CHG_BUSY_KEY);
-            List<String> args = ImmutableList.of(String.valueOf(timeoutTimeMs), chg);
-            String res = (String) updateChgBusyTimeoutScript.runString(jedis, keys, args);
-            if (res == null) {
-                return null;
-            }
-            return Long.valueOf(res);
+            List<String> keys = ImmutableList.of(CrawlQueueManager.CHG_BUSY_KEY, chgKey);
+            List<String> args = ImmutableList.of(String.valueOf(timeoutTimeMs), crawlHostGroupId, sessionToken);
+            Long res = (Long) chgUpdateBusyTimeoutScript.runString(jedis, keys, args);
+            return res;
         });
     }
 }

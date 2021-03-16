@@ -99,12 +99,6 @@ public class FrontierApiServer {
     }
 
     public void shutdown() {
-        healthCheckerExecutorService.shutdownNow();
-        try {
-            healthCheckerExecutorService.awaitTermination(5, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            System.err.println("Interrupted while waiting for health checker shutdown");
-        }
         health.enterTerminalState();
 
         long startTime = System.currentTimeMillis();
@@ -124,6 +118,12 @@ public class FrontierApiServer {
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
+        }
+        healthCheckerExecutorService.shutdownNow();
+        try {
+            healthCheckerExecutorService.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            System.err.println("Interrupted while waiting for health checker shutdown");
         }
     }
 

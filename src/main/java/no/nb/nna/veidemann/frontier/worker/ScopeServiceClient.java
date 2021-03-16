@@ -27,13 +27,11 @@ import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopesCheckerServiceGrpc;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopesCheckerServiceGrpc.ScopesCheckerServiceBlockingStub;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopesCheckerServiceGrpc.ScopesCheckerServiceFutureStub;
-import no.nb.nna.veidemann.api.scopechecker.v1.ScopesCheckerServiceGrpc.ScopesCheckerServiceStub;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.CanonicalizeRequest;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.CanonicalizeResponse;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.UriCanonicalizerServiceGrpc;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.UriCanonicalizerServiceGrpc.UriCanonicalizerServiceBlockingStub;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.UriCanonicalizerServiceGrpc.UriCanonicalizerServiceFutureStub;
-import no.nb.nna.veidemann.api.uricanonicalizer.v1.UriCanonicalizerServiceGrpc.UriCanonicalizerServiceStub;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,15 +48,8 @@ public class ScopeServiceClient implements AutoCloseable {
     private final ManagedChannel channel;
 
     private final UriCanonicalizerServiceBlockingStub canonBlockingStub;
-
-    private final UriCanonicalizerServiceStub canonAsyncStub;
-
     private final UriCanonicalizerServiceFutureStub canonFutureStub;
-
     private final ScopesCheckerServiceBlockingStub scopeBlockingStub;
-
-    private final ScopesCheckerServiceStub scopeAsyncStub;
-
     private final ScopesCheckerServiceFutureStub scopeFutureStub;
 
     public ScopeServiceClient(final String host, final int port) {
@@ -67,14 +58,12 @@ public class ScopeServiceClient implements AutoCloseable {
     }
 
     public ScopeServiceClient(ManagedChannelBuilder<?> channelBuilder) {
-        LOG.info("Setting up Frontier client");
+        LOG.debug("Setting up Frontier client");
         ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
         channel = channelBuilder.intercept(tracingInterceptor).build();
         canonBlockingStub = UriCanonicalizerServiceGrpc.newBlockingStub(channel);
-        canonAsyncStub = UriCanonicalizerServiceGrpc.newStub(channel);
         canonFutureStub = UriCanonicalizerServiceGrpc.newFutureStub(channel);
         scopeBlockingStub = ScopesCheckerServiceGrpc.newBlockingStub(channel);
-        scopeAsyncStub = ScopesCheckerServiceGrpc.newStub(channel);
         scopeFutureStub = ScopesCheckerServiceGrpc.newFutureStub(channel);
     }
 

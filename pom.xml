@@ -26,13 +26,15 @@
         <maven.compiler.target>11</maven.compiler.target>
         <docker.tag>${project.version}</docker.tag>
 
-        <veidemann.api.version>1.0.0-beta20</veidemann.api.version>
+        <veidemann.api.version>1.0.0-beta21</veidemann.api.version>
         <veidemann.commons.version>0.4.9</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.5.7</veidemann.rethinkdbadapter.version>
+        <veidemann.rethinkdbadapter.version>0.6.0</veidemann.rethinkdbadapter.version>
 
         <com.github.netflix.concurrency-limits.version>0.3.7</com.github.netflix.concurrency-limits.version>
         <log4j.version>2.13.3</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
+
+        <junit.jupiter.version>5.7.0</junit.jupiter.version>
 
         <!--Docker container versions for integration tests-->
         <rethinkdb.version>2.3.6</rethinkdb.version>
@@ -199,19 +201,44 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>5.7.0</version>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>${junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <version>5.7.0</version>
+            <version>${junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.vintage</groupId>
             <artifactId>junit-vintage-engine</artifactId>
-            <version>5.7.0</version>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>1.15.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>1.15.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -249,11 +276,51 @@
 
         <plugins>
             <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>reserve-network-port</id>
+                        <goals>
+                            <goal>reserve-network-port</goal>
+                        </goals>
+                        <phase>process-resources</phase>
+                        <configuration>
+                            <portNames>
+                                <portName>dnsresolver.port</portName>
+                                <portName>robotsevaluator.port</portName>
+                                <portName>ooshandler.port</portName>
+                                <portName>scopeChecker.port</portName>
+                                <portName>redis.port</portName>
+                                <portName>frontier.port</portName>
+                            </portNames>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <forkCount>1C</forkCount>
-                    <reuseForks>false</reuseForks>
+                    <excludedGroups>integration</excludedGroups>
+                    <systemPropertyVariables>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <frontier.port>${frontier.port}</frontier.port>
+                        <dnsresolver.host>localhost</dnsresolver.host>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <dnsresolver.port>${dnsresolver.port}</dnsresolver.port>
+                        <robotsevaluator.host>localhost</robotsevaluator.host>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <robotsevaluator.port>${robotsevaluator.port}</robotsevaluator.port>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <ooshandler.host>localhost</ooshandler.host>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <ooshandler.port>${ooshandler.port}</ooshandler.port>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <scopeChecker.host>localhost</scopeChecker.host>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <scopeChecker.port>${scopeChecker.port}</scopeChecker.port>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
@@ -350,251 +417,16 @@
                 </plugins>
             </build>
         </profile>
-
         <profile>
             <id>integration-tests</id>
             <build>
                 <plugins>
                     <plugin>
-                        <groupId>org.codehaus.groovy.maven</groupId>
-                        <artifactId>gmaven-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <phase>generate-resources</phase>
-                                <goals>
-                                    <goal>execute</goal>
-                                </goals>
-                                <configuration>
-                                    <source>
-                                        java.net.DatagramSocket socket = new java.net.DatagramSocket()
-                                        socket.connect(java.net.InetAddress.getByName('google.com'), 80)
-                                        project.properties['local.ip'] = socket.getLocalAddress().getHostAddress()
-                                    </source>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.codehaus.mojo</groupId>
-                        <artifactId>build-helper-maven-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>reserve-network-port</id>
-                                <goals>
-                                    <goal>reserve-network-port</goal>
-                                </goals>
-                                <phase>process-resources</phase>
-                                <configuration>
-                                    <portNames>
-                                        <portName>dnsresolver.port</portName>
-                                        <portName>robotsevaluator.port</portName>
-                                        <portName>ooshandler.port</portName>
-                                        <portName>scopeChecker.port</portName>
-                                        <portName>redis.port</portName>
-                                    </portNames>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>io.fabric8</groupId>
-                        <artifactId>docker-maven-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>prepare-tests</id>
-                                <phase>pre-integration-test</phase>
-                                <goals>
-                                    <goal>volume-create</goal>
-                                    <goal>start</goal>
-                                </goals>
-                            </execution>
-                            <execution>
-                                <id>remove-tests</id>
-                                <phase>post-integration-test</phase>
-                                <goals>
-                                    <goal>stop</goal>
-                                </goals>
-                                <configuration>
-                                    <removeVolumes>true</removeVolumes>
-                                </configuration>
-                            </execution>
-                        </executions>
-                        <configuration>
-                            <autoCreateCustomNetworks>true</autoCreateCustomNetworks>
-                            <startParallel>false</startParallel>
-                            <volumes>
-                                <volume>
-                                    <name>frontier-rethink-data</name>
-                                </volume>
-                            </volumes>
-                            <images>
-                                <image>
-                                    <name>rethinkdb:${rethinkdb.version}</name>
-                                    <alias>db</alias>
-                                    <run>
-                                        <network>
-                                            <mode>custom</mode>
-                                            <name>frontier-test-net</name>
-                                            <alias>db</alias>
-                                        </network>
-                                        <ports>
-                                            <port>+db.host:db.port:28015</port>
-                                        </ports>
-                                        <volumes>
-                                            <bind>
-                                                <volume>frontier-rethink-data:/data</volume>
-                                            </bind>
-                                        </volumes>
-                                        <log>
-                                            <enabled>true</enabled>
-                                        </log>
-                                        <wait>
-                                            <log>Server ready.*</log>
-                                            <time>100000</time>
-                                        </wait>
-                                    </run>
-                                </image>
-                                <image>
-                                    <name>
-                                        norsknettarkiv/veidemann-db-initializer:${veidemann.rethinkdbadapter.version}
-                                    </name>
-                                    <alias>db-initializer</alias>
-                                    <run>
-                                        <network>
-                                            <mode>custom</mode>
-                                            <name>frontier-test-net</name>
-                                            <alias>db-initializer</alias>
-                                        </network>
-                                        <dependsOn>
-                                            <container>db</container>
-                                        </dependsOn>
-                                        <env>
-                                            <DB_HOST>db</DB_HOST>
-                                            <DB_USER>admin</DB_USER>
-                                        </env>
-                                        <log>
-                                            <enabled>true</enabled>
-                                        </log>
-                                        <wait>
-                                            <log>DB initialized</log>
-                                            <time>60000</time>
-                                        </wait>
-                                    </run>
-                                </image>
-                                <image>
-                                    <name>
-                                        redis:${redis.version}
-                                    </name>
-                                    <alias>redis</alias>
-                                    <run>
-                                        <network>
-                                            <mode>custom</mode>
-                                            <name>frontier-test-net</name>
-                                            <alias>redis</alias>
-                                        </network>
-                                        <ports>
-                                            <port>+redis.host:redis.port:6379</port>
-                                        </ports>
-                                        <log>
-                                            <enabled>true</enabled>
-                                        </log>
-                                        <wait>
-                                            <log>Ready to accept connections</log>
-                                            <time>60000</time>
-                                        </wait>
-                                    </run>
-                                </image>
-                                <image>
-                                    <name>norsknettarkiv/veidemann-frontier</name>
-                                    <alias>frontier</alias>
-                                    <run>
-                                        <network>
-                                            <mode>custom</mode>
-                                            <name>frontier-test-net</name>
-                                            <alias>frontier</alias>
-                                        </network>
-                                        <ports>
-                                            <port>+frontier.host:frontier.port:7700</port>
-                                        </ports>
-                                        <dependsOn>
-                                            <container>db-initializer</container>
-                                        </dependsOn>
-                                        <env>
-                                            <DB_HOST>db</DB_HOST>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <ROBOTS_EVALUATOR_HOST>${local.ip}</ROBOTS_EVALUATOR_HOST>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <ROBOTS_EVALUATOR_PORT>${robotsevaluator.port}</ROBOTS_EVALUATOR_PORT>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <DNS_RESOLVER_HOST>${local.ip}</DNS_RESOLVER_HOST>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <DNS_RESOLVER_PORT>${dnsresolver.port}</DNS_RESOLVER_PORT>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <OOS_HANDLER_HOST>${local.ip}</OOS_HANDLER_HOST>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <OOS_HANDLER_PORT>${ooshandler.port}</OOS_HANDLER_PORT>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <SCOPESERVICE_HOST>${local.ip}</SCOPESERVICE_HOST>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <SCOPESERVICE_PORT>${scopeChecker.port}</SCOPESERVICE_PORT>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <REDIS_HOST>redis</REDIS_HOST>
-                                            <!--suppress UnresolvedMavenProperty -->
-                                            <REDIS_PORT>6379</REDIS_PORT>
-                                            <BUSY_TIMEOUT>4s</BUSY_TIMEOUT>
-                                        </env>
-                                        <log>
-                                            <enabled>true</enabled>
-                                        </log>
-                                        <wait>
-                                            <log>Veidemann Frontier .* started</log>
-                                            <time>30000</time>
-                                        </wait>
-                                    </run>
-                                </image>
-                            </images>
-                        </configuration>
-                    </plugin>
-                    <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-failsafe-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <goals>
-                                    <goal>integration-test</goal>
-                                    <goal>verify</goal>
-                                </goals>
-                            </execution>
-                        </executions>
+                        <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-                            <systemPropertyVariables>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <db.host>${db.host}</db.host>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <db.port>${db.port}</db.port>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <redis.host>${redis.host}</redis.host>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <redis.port>${redis.port}</redis.port>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <frontier.host>${frontier.host}</frontier.host>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <frontier.port>${frontier.port}</frontier.port>
-                                <dnsresolver.host>localhost</dnsresolver.host>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <dnsresolver.port>${dnsresolver.port}</dnsresolver.port>
-                                <robotsevaluator.host>localhost</robotsevaluator.host>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <robotsevaluator.port>${robotsevaluator.port}</robotsevaluator.port>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <ooshandler.host>localhost</ooshandler.host>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <ooshandler.port>${ooshandler.port}</ooshandler.port>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <scopeChecker.host>localhost</scopeChecker.host>
-                                <!--suppress UnresolvedMavenProperty -->
-                                <scopeChecker.port>${scopeChecker.port}</scopeChecker.port>
-                            </systemPropertyVariables>
+                            <groups>integration</groups>
+                            <excludedGroups>unit</excludedGroups>
                         </configuration>
                     </plugin>
                 </plugins>

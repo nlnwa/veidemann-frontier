@@ -21,12 +21,14 @@ import com.google.common.cache.LoadingCache;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Durations;
 import com.google.protobuf.util.Timestamps;
+import com.rethinkdb.RethinkDB;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.config.v1.ListRequest;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUriOrBuilder;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckRequest;
@@ -34,21 +36,28 @@ import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse.Evaluation;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.ChangeFeed;
+import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
-import no.nb.nna.veidemann.commons.util.ApiTools;
 import no.nb.nna.veidemann.db.ProtoUtils;
+import no.nb.nna.veidemann.db.Tables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import static no.nb.nna.veidemann.db.ProtoUtils.rethinkToProto;
 
 /**
  *
@@ -56,35 +65,46 @@ import java.util.stream.Collectors;
 public class QueuedUriWrapper {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueuedUriWrapper.class);
+    static final RethinkDB r = RethinkDB.r;
 
     private QueuedUri.Builder wrapped;
 
-    private final String host;
-    private final int port;
+    private String host;
+    private int port;
     private final String collectionName;
-    private final String includedCheckUri;
-    private final ScopeCheckResponse scopeCheckResponse;
+    private String includedCheckUri;
+    private ScopeCheckResponse scopeCheckResponse;
+    private CrawlHostGroup.Builder crawlHostGroup;
+    private Timestamp oldEarliestFetchTimestamp;
 
     final Frontier frontier;
 
-    static final LoadingCache<ListRequest, List<ConfigObject>> chgConfigCache;
+    private final static String ALL_CHGS_CACHE_KEY = "all_chg";
+    static final LoadingCache<String, Map<String, ConfigObject>> chgConfigCache;
 
     static {
         chgConfigCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(5, TimeUnit.MINUTES)
                 .build(
-                        new CacheLoader<ListRequest, List<ConfigObject>>() {
-                            public List<ConfigObject> load(ListRequest key) throws DbException {
-                                try (ChangeFeed<ConfigObject> cursor = DbService.getInstance().getConfigAdapter().listConfigObjects(key)) {
-                                    return cursor.stream().collect(Collectors.toList());
+                        new CacheLoader<String, Map<String, ConfigObject>>() {
+                            public Map<String, ConfigObject> load(String key) throws DbException {
+                                switch (key) {
+                                    case ALL_CHGS_CACHE_KEY:
+                                        try (ChangeFeed<ConfigObject> cursor = DbService.getInstance().getConfigAdapter()
+                                                .listConfigObjects(ListRequest.newBuilder()
+                                                        .setKind(Kind.crawlHostGroupConfig).build())) {
+                                            return cursor.stream().collect(
+                                                    Collectors.toUnmodifiableMap(ConfigObject::getId, Function.identity()));
+                                        }
+                                    default:
+                                        throw new IllegalArgumentException("Unknown chg cache key: " + key);
                                 }
                             }
                         });
     }
 
     private QueuedUriWrapper(
-            Frontier frontier, QueuedUriOrBuilder uri, String collectionName, Collection<Annotation> scriptParameters,
-            ConfigRef scopeScriptRef) throws URISyntaxException, DbException {
+            Frontier frontier, QueuedUriOrBuilder uri, String collectionName) {
 
         this.frontier = frontier;
         this.collectionName = collectionName;
@@ -93,6 +113,10 @@ public class QueuedUriWrapper {
         } else {
             wrapped = ((QueuedUri) uri).toBuilder();
         }
+    }
+
+    public void initScopeCheck(Collection<Annotation> scriptParameters,
+                               ConfigRef scopeScriptRef) throws DbQueryException {
         wrapped.addAllAnnotation(scriptParameters);
         ConfigObject script = frontier.getConfig(scopeScriptRef);
 
@@ -110,8 +134,17 @@ public class QueuedUriWrapper {
         port = scopeCheckResponse.getIncludeCheckUri().getPort();
     }
 
-    public static QueuedUriWrapper getQueuedUriWrapper(
-            Frontier frontier, QueuedUri qUri, String collectionName,
+    public static QueuedUriWrapper getQueuedUriWrapperNoScopeCheck(Frontier frontier, QueuedUri qUri, String collectionName) {
+        requireNonEmpty(qUri.getUri(), "Empty URI string");
+        requireNonEmpty(qUri.getJobExecutionId(), "Empty JobExecutionId");
+        requireNonEmpty(qUri.getExecutionId(), "Empty ExecutionId");
+        requireNonEmpty(qUri.getPolitenessRef(), "Empty PolitenessRef");
+
+        return new QueuedUriWrapper(frontier, qUri, collectionName);
+    }
+
+    public static QueuedUriWrapper getQueuedUriWrapperWithScopeCheck(
+            Frontier frontier, QueuedUriOrBuilder qUri, String collectionName,
             Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef) throws URISyntaxException, DbException {
 
         requireNonEmpty(qUri.getUri(), "Empty URI string");
@@ -119,11 +152,13 @@ public class QueuedUriWrapper {
         requireNonEmpty(qUri.getExecutionId(), "Empty ExecutionId");
         requireNonEmpty(qUri.getPolitenessRef(), "Empty PolitenessRef");
 
-        return new QueuedUriWrapper(frontier, qUri, collectionName, scriptParameters, scopeScriptRef);
+        QueuedUriWrapper wrapper = new QueuedUriWrapper(frontier, qUri, collectionName);
+        wrapper.initScopeCheck(scriptParameters, scopeScriptRef);
+        return wrapper;
     }
 
     public static QueuedUriWrapper getOutlinkQueuedUriWrapper(
-            Frontier frontier, QueuedUriWrapper parentUri, QueuedUri qUri, String collectionName,
+            Frontier frontier, QueuedUriWrapper parentUri, QueuedUri.Builder qUri, String collectionName,
             Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef) throws URISyntaxException, DbException {
 
         requireNonEmpty(qUri.getUri(), "Empty URI string");
@@ -132,14 +167,13 @@ public class QueuedUriWrapper {
         requireNonEmpty(parentUri.getPolitenessRef(), "Empty PolitenessRef");
         requireNonEmpty(parentUri.getSeedUri(), "Empty SeedUri");
 
-        qUri = qUri.toBuilder()
-                .setSeedUri(parentUri.getSeedUri())
+        qUri.setSeedUri(parentUri.getSeedUri())
                 .setJobExecutionId(parentUri.getJobExecutionId())
                 .setExecutionId(parentUri.getExecutionId())
                 .setPolitenessRef(parentUri.getPolitenessRef())
-                .build();
+                .setSequence(parentUri.getSequence() + 1);
 
-        QueuedUriWrapper wrapper = new QueuedUriWrapper(frontier, qUri, collectionName, scriptParameters, scopeScriptRef);
+        QueuedUriWrapper wrapper = getQueuedUriWrapperWithScopeCheck(frontier, qUri, parentUri.collectionName, scriptParameters, scopeScriptRef);
         wrapper.wrapped.setUnresolved(true);
 
         return wrapper;
@@ -150,14 +184,14 @@ public class QueuedUriWrapper {
             String collectionName, Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef)
             throws URISyntaxException, DbException {
 
-        return new QueuedUriWrapper(frontier, QueuedUri.newBuilder()
-                .setUri(uri)
-                .setSeedUri(uri)
-                .setJobExecutionId(jobExecutionId)
-                .setExecutionId(executionId)
-                .setPolitenessRef(politenessId)
-                .setUnresolved(true)
-                .setSequence(1L),
+        return getQueuedUriWrapperWithScopeCheck(frontier, QueuedUri.newBuilder()
+                        .setUri(uri)
+                        .setSeedUri(uri)
+                        .setJobExecutionId(jobExecutionId)
+                        .setExecutionId(executionId)
+                        .setPolitenessRef(politenessId)
+                        .setUnresolved(true)
+                        .setSequence(1L),
                 collectionName,
                 scriptParameters,
                 scopeScriptRef
@@ -188,6 +222,26 @@ public class QueuedUriWrapper {
             throw new IllegalStateException("Exclude reason called on uri which was eligible for inclusion");
         }
         return scopeCheckResponse.getError();
+    }
+
+    public QueuedUriWrapper save() throws DbQueryException, DbConnectionException {
+        Map rMap = ProtoUtils.protoToRethink(wrapped);
+
+        Map<String, Object> response = frontier.conn.exec("db-saveQueuedUri",
+                r.table(Tables.URI_QUEUE.name).get(wrapped.getId())
+                        .update(rMap)
+                        .optArg("durability", "soft")
+                        .optArg("return_changes", "always"));
+        List<Map<String, Map>> changes = (List<Map<String, Map>>) response.get("changes");
+
+        Map newDoc = changes.get(0).get("new_val");
+        wrapped = rethinkToProto(newDoc, QueuedUri.class).toBuilder();
+
+        if (oldEarliestFetchTimestamp != null && oldEarliestFetchTimestamp.getSeconds() != wrapped.getEarliestFetchTimeStamp().getSeconds()) {
+            frontier.getCrawlQueueManager().updateQueuedUri(this, oldEarliestFetchTimestamp);
+            oldEarliestFetchTimestamp = null;
+        }
+        return this;
     }
 
     public boolean addUriToQueue(StatusWrapper status) throws DbException {
@@ -227,8 +281,11 @@ public class QueuedUriWrapper {
             throw ex;
         }
 
-        if (wrapped.getUnresolved() && wrapped.getCrawlHostGroupId().isEmpty()) {
-            wrapped.setCrawlHostGroupId("TEMP_CHG_" + ApiTools.createSha1Digest(getHost()));
+        if (wrapped.getCrawlHostGroupId().isEmpty()) {
+
+            ConfigObject politeness = frontier.getConfig(wrapped.getPolitenessRef());
+            wrapped.setCrawlHostGroupId(CrawlHostGroupCalculator.calculateCrawlHostGroupId(getHost(), null,
+                    Collections.emptyList(), politeness));
         }
         requireNonEmpty(wrapped.getCrawlHostGroupId(), "Empty CrawlHostGroupId");
 
@@ -236,8 +293,10 @@ public class QueuedUriWrapper {
         wrapped.clearAnnotation();
 
         QueuedUri q = wrapped.build();
-        q = frontier.getCrawlQueueManager().addToCrawlHostGroup(q);
+        q = frontier.getCrawlQueueManager().addToCrawlHostGroup(q, false);
         wrapped = q.toBuilder();
+
+        oldEarliestFetchTimestamp = null;
 
         return true;
     }
@@ -309,6 +368,9 @@ public class QueuedUriWrapper {
 
     QueuedUriWrapper setFetchStartTimeStamp(Timestamp value) {
         wrapped.setFetchStartTimeStamp(value);
+        if (crawlHostGroup != null) {
+            crawlHostGroup.setFetchStartTimeStamp(value);
+        }
         return this;
     }
 
@@ -338,7 +400,7 @@ public class QueuedUriWrapper {
         return this;
     }
 
-    String getCrawlHostGroupId() {
+    public String getCrawlHostGroupId() {
         return wrapped.getCrawlHostGroupId();
     }
 
@@ -347,8 +409,42 @@ public class QueuedUriWrapper {
         return this;
     }
 
+    String generateSessionToken() {
+        String uuid = UUID.randomUUID().toString();
+        crawlHostGroup.setSessionToken(uuid);
+        return uuid;
+    }
+
+    public CrawlHostGroup getCrawlHostGroup() throws DbQueryException {
+        if (crawlHostGroup == null) {
+            try {
+                CrawlHostGroup chg = frontier.getCrawlQueueManager().getCrawlHostGroup(wrapped.getCrawlHostGroupId());
+                Map<String, ConfigObject> groupConfigs = chgConfigCache.get(ALL_CHGS_CACHE_KEY);
+                ConfigObject chgConfig = groupConfigs.getOrDefault(wrapped.getCrawlHostGroupId(),
+                        frontier.getConfig(ConfigRef.newBuilder().setKind(Kind.crawlHostGroupConfig).setId("chg-default").build()));
+
+                crawlHostGroup = CrawlHostGroup.newBuilder()
+                        .setId(wrapped.getCrawlHostGroupId())
+                        .setCurrentUriId(wrapped.getId())
+                        .setMinTimeBetweenPageLoadMs(chgConfig.getCrawlHostGroupConfig().getMinTimeBetweenPageLoadMs())
+                        .setMaxTimeBetweenPageLoadMs(chgConfig.getCrawlHostGroupConfig().getMaxTimeBetweenPageLoadMs())
+                        .setDelayFactor(chgConfig.getCrawlHostGroupConfig().getDelayFactor())
+                        .setMaxRetries(chgConfig.getCrawlHostGroupConfig().getMaxRetries())
+                        .setRetryDelaySeconds(chgConfig.getCrawlHostGroupConfig().getRetryDelaySeconds())
+                        .setFetchStartTimeStamp(wrapped.getFetchStartTimeStamp())
+                        .mergeFrom(chg);
+            } catch (ExecutionException e) {
+                throw new DbQueryException(e);
+            }
+        }
+        return crawlHostGroup.build();
+    }
+
     QueuedUriWrapper setEarliestFetchDelaySeconds(int value) {
         Timestamp earliestFetch = Timestamps.add(ProtoUtils.getNowTs(), Durations.fromSeconds(value));
+        if (oldEarliestFetchTimestamp == null && wrapped.hasEarliestFetchTimeStamp()) {
+            oldEarliestFetchTimestamp = wrapped.getEarliestFetchTimeStamp();
+        }
         wrapped.setEarliestFetchTimeStamp(earliestFetch);
         return this;
     }
@@ -363,8 +459,7 @@ public class QueuedUriWrapper {
     }
 
     public long getSequence() {
-        // Internally use a sequence with base 1 to avoid the value beeing deleted from the protobuf object.
-        return wrapped.getSequence() - 1L;
+        return wrapped.getSequence();
     }
 
     QueuedUriWrapper setSequence(long value) {
@@ -372,8 +467,7 @@ public class QueuedUriWrapper {
             throw new IllegalArgumentException("Negative values not allowed");
         }
 
-        // Internally use a sequence with base 1 to avoid the value beeing deleted from the protobuf object.
-        wrapped.setSequence(value + 1L);
+        wrapped.setSequence(value);
         return this;
     }
 
@@ -402,7 +496,7 @@ public class QueuedUriWrapper {
 
     QueuedUriWrapper setResolved(ConfigObject politeness) throws DbException {
         if (wrapped.getUnresolved() == false) {
-            return this;
+            throw new RuntimeException("Uri '" + getUri() + "'was already resolved to " + getIp());
         }
 
         if (wrapped.getIp().isEmpty()) {
@@ -411,31 +505,27 @@ public class QueuedUriWrapper {
             throw new IllegalStateException(msg);
         }
 
-        String crawlHostGroupId;
-        if (politeness.getPolitenessConfig().getUseHostname()) {
-            // Use host name for politeness
-            crawlHostGroupId = ApiTools.createSha1Digest(getHost());
-        } else {
-            // Use IP for politeness
-            // Calculate CrawlHostGroup
-            try {
-                List<ConfigObject> groupConfigs = chgConfigCache.get(ListRequest.newBuilder()
-                        .setKind(Kind.crawlHostGroupConfig)
-                        .addAllLabelSelector(politeness.getPolitenessConfig().getCrawlHostGroupSelectorList()).build());
-                crawlHostGroupId = CrawlHostGroupCalculator.calculateCrawlHostGroup(wrapped.getIp(), groupConfigs);
-            } catch (ExecutionException e) {
-                throw new DbQueryException(e);
-            }
+        try {
+            Map<String, ConfigObject> groupConfigs = chgConfigCache.get(ALL_CHGS_CACHE_KEY);
+            String crawlHostGroupId = CrawlHostGroupCalculator.calculateCrawlHostGroupId(getHost(), wrapped.getIp(), groupConfigs.values(), politeness);
+            wrapped.setCrawlHostGroupId(crawlHostGroupId);
+            wrapped.setUnresolved(false);
+            return this;
+        } catch (ExecutionException e) {
+            throw new DbQueryException(e);
         }
-
-        wrapped.setCrawlHostGroupId(crawlHostGroupId);
-
-        wrapped.setUnresolved(false);
-        return this;
     }
 
     public QueuedUri getQueuedUri() {
         return wrapped.build();
+    }
+
+    public QueuedUri getQueuedUriForRemoval() {
+        if (oldEarliestFetchTimestamp != null) {
+            return wrapped.clone().setEarliestFetchTimeStamp(oldEarliestFetchTimestamp).build();
+        } else {
+            return wrapped.build();
+        }
     }
 
     public String getCollectionName() {

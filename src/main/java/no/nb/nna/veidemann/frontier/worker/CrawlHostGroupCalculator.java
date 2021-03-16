@@ -20,7 +20,7 @@ import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.commons.util.ApiTools;
 
 import java.math.BigInteger;
-import java.util.List;
+import java.util.Collection;
 
 /**
  *
@@ -40,10 +40,19 @@ public class CrawlHostGroupCalculator {
      * @param crawlHostGroupConfigs the CrawlHostGroup configs to check
      * @return id of a CrawlHostGroup or the hashed IP
      */
-    public static String calculateCrawlHostGroup(String ip, List<ConfigObject> crawlHostGroupConfigs) {
+    public static String calculateCrawlHostGroupId(String host, String ip, Collection<ConfigObject> crawlHostGroupConfigs,
+                                                   ConfigObject politeness) {
+        if (ip == null || politeness.getPolitenessConfig().getUseHostname()) {
+            String id = ApiTools.createSha1Digest(host);
+            if (!politeness.getPolitenessConfig().getUseHostname()) {
+                id = "TEMP_CHG_" + id;
+            }
+            return id;
+        }
+
         BigInteger ipVal = ipAsInteger(ip);
 
-        String hostGroupHash = crawlHostGroupConfigs.stream()
+        return crawlHostGroupConfigs.stream()
                 .filter(g -> {
                     return g.getCrawlHostGroupConfig().getIpRangeList().stream()
                             .anyMatch(r -> inRange(ipAsInteger(r.getIpFrom()), ipAsInteger(r.getIpTo()), ipVal));
@@ -51,8 +60,6 @@ public class CrawlHostGroupCalculator {
                 .findFirst()
                 .map(g -> g.getId())
                 .orElse(ApiTools.createSha1Digest(ip));
-
-        return hostGroupHash;
     }
 
     private static BigInteger ipAsInteger(String ip) {

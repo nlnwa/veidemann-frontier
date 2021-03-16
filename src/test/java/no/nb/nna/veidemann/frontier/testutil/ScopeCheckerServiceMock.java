@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package no.nb.nna.veidemann.frontier;
+package no.nb.nna.veidemann.frontier.testutil;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -27,17 +27,21 @@ import no.nb.nna.veidemann.api.scopechecker.v1.ScopesCheckerServiceGrpc;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.CanonicalizeRequest;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.CanonicalizeResponse;
 import no.nb.nna.veidemann.api.uricanonicalizer.v1.UriCanonicalizerServiceGrpc;
+import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.concurrent.TimeUnit;
 
-public class ScopeCheckerServiceMock {
+public class ScopeCheckerServiceMock implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(ScopeCheckerServiceMock.class);
 
     final Server server;
+    public final RequestLog requestLog = new RequestLog();
+    int maxHopsFromSeed = 0;
 
     public ScopeCheckerServiceMock(int port) {
         server = ServerBuilder.forPort(port)
@@ -46,8 +50,20 @@ public class ScopeCheckerServiceMock {
                 .build();
     }
 
-    public void start() throws IOException {
+    public ScopeCheckerServiceMock withMaxHopsFromSeed(int maxHopsFromSeed) {
+        this.maxHopsFromSeed = maxHopsFromSeed;
+        return this;
+    }
+
+    public ScopeCheckerServiceMock start() throws IOException {
         server.start();
+        return this;
+    }
+
+    @Override
+    public void close() throws Exception {
+        server.shutdownNow();
+        server.awaitTermination(5, TimeUnit.SECONDS);
     }
 
     public class UriCanonicalizerService extends UriCanonicalizerServiceGrpc.UriCanonicalizerServiceImplBase {
@@ -96,15 +112,40 @@ public class ScopeCheckerServiceMock {
          */
         @Override
         public void scopeCheck(ScopeCheckRequest request, StreamObserver<ScopeCheckResponse> responseObserver) {
+            String qUri = request.getQueuedUri().getUri();
+            String seed = request.getQueuedUri().getSeedUri();
+
+            // Add request to documentLog
+            requestLog.addRequest(qUri);
+
             try {
-                Evaluation eval = Evaluation.INCLUDE;
-                if (request.getQueuedUri().getDiscoveryPath().length() > 2) {
-                    eval = Evaluation.EXCLUDE;
-                }
-                String qUri = request.getQueuedUri().getUri();
-                String seed = request.getQueuedUri().getSeedUri();
-                if (!qUri.startsWith(seed)) {
-                    eval = Evaluation.EXCLUDE;
+                ScopeCheckResponse.Builder response = ScopeCheckResponse.newBuilder().setEvaluation(Evaluation.INCLUDE);
+
+                if (request.getQueuedUri().getDiscoveryPath().length() > maxHopsFromSeed) {
+                    // Limit depth
+//                    System.out.println("Scope check denied for depth " + qUri);
+                    response.setEvaluation(Evaluation.EXCLUDE)
+                            .setExcludeReason(ExtraStatusCodes.TOO_MANY_HOPS.getCode())
+                            .setError(ExtraStatusCodes.TOO_MANY_HOPS.toFetchError());
+                } else if (!qUri.startsWith(seed)) {
+                    // Deny off host hops
+//                    System.out.println("Scope check denied for off seed " + qUri);
+                    response.setEvaluation(Evaluation.EXCLUDE)
+                            .setExcludeReason(ExtraStatusCodes.BLOCKED.getCode())
+                            .setError(ExtraStatusCodes.BLOCKED.toFetchError());
+//                } else if (qUri.contains("stress-000015.com")) {
+//                    // Limit specific host, will reject seed
+//                    System.out.println("Scope check denied for uri matches " + qUri);
+//                    response.setEvaluation(Evaluation.EXCLUDE)
+//                            .setExcludeReason(ExtraStatusCodes.BLOCKED.getCode())
+//                            .setError(ExtraStatusCodes.BLOCKED.toFetchError());
+//                } else if (qUri.equals("http://stress-000062.com/p0") && requestLog.getCount(qUri) >= 2) {
+//                    System.out.println("????????? " + requestLog.getCount(qUri));
+//                    // Limit specific host/path after accepting first time. This trigger the recheck.
+//                    System.out.println("Scope recheck denied for uri matches " + qUri);
+//                    response.setEvaluation(Evaluation.EXCLUDE)
+//                            .setExcludeReason(ExtraStatusCodes.BLOCKED.getCode())
+//                            .setError(ExtraStatusCodes.BLOCKED.toFetchError());
                 }
 
                 URL u = new URL(qUri);
@@ -115,8 +156,7 @@ public class ScopeCheckerServiceMock {
                         .setPort(80)
                         .setPath(u.getPath())
                         .build();
-                responseObserver.onNext(ScopeCheckResponse.newBuilder()
-                        .setEvaluation(eval)
+                responseObserver.onNext(response
                         .setIncludeCheckUri(icUri)
                         .build());
                 responseObserver.onCompleted();

@@ -47,10 +47,12 @@ public class CrawlQueueWorker implements AutoCloseable {
                 if (moved > 0) {
                     LOG.debug("{} CrawlHostGroups moved from wait state to ready state", moved);
                 }
-                moved = chgBusyTimeoutScript.run(ctx);
+
+                moved = frontier.getCrawlQueueManager().releaseTimedOutBusyChgs().longValue();
                 if (moved > 0) {
                     LOG.warn("{} CrawlHostGroups moved from busy state to ready state", moved);
                 }
+
                 moved = delayedChgQueueScript.run(ctx, CRAWL_EXECUTION_RUNNING_KEY, CRAWL_EXECUTION_TIMEOUT_KEY);
                 if (moved > 0) {
                     LOG.debug("{} CrawlExecutions moved from running state to timeout state", moved);
@@ -166,7 +168,9 @@ public class CrawlQueueWorker implements AutoCloseable {
 
     @Override
     public void close() throws InterruptedException {
+        LOG.debug("Closing CrawlQueueWorker");
         executor.shutdown();
         executor.awaitTermination(15, TimeUnit.SECONDS);
+        LOG.debug("CrawlQueueWorker closed");
     }
 }
