@@ -14,9 +14,8 @@
  * limitations under the License.
  */
 
-package no.nb.nna.veidemann.frontier;
+package no.nb.nna.veidemann.frontier.testutil;
 
-import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc.FrontierStub;
@@ -30,15 +29,25 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-public class HarvesterMock {
+public class HarvesterMock implements AutoCloseable {
     private static final int NUM_HARVESTERS = 200;
-    private static final int SIMULATED_PAGE_FETCH_TIME_MS = 1000;
     private static final Logger LOG = LoggerFactory.getLogger(HarvesterMock.class);
+
+    public RequestLog requestLog = new RequestLog();
+    private final RequestMatcher exceptionForUrl = new RequestMatcher(requestLog);
+    private final RequestMatcher fetchErrorForUrl = new RequestMatcher(requestLog);
+    private final RequestMatcher longFetchTimeForUrl = new RequestMatcher(requestLog);
+    int linksPerLevel = 0;
+    long pageFetchTimeMs = 10;
+    long longPageFetchTimeMs = 3000;
+
     private final static PageHarvest NEW_PAGE_REQUEST = PageHarvest.newBuilder().setRequestNextPage(true).build();
     private final FrontierGrpc.FrontierStub frontierAsyncStub;
     private final ExecutorService exe;
@@ -49,7 +58,7 @@ public class HarvesterMock {
         exe = Executors.newFixedThreadPool(NUM_HARVESTERS);
     }
 
-    public void start() {
+    public HarvesterMock start() {
         for (int i = 0; i < NUM_HARVESTERS; i++) {
             exe.submit((Callable<Void>) () -> {
                 Harvester h = new Harvester();
@@ -59,11 +68,48 @@ public class HarvesterMock {
                 return null;
             });
         }
+        return this;
     }
 
-    public void close() {
+    public void close() throws InterruptedException {
         shouldRun = false;
-        exe.shutdown();
+        exe.shutdownNow();
+        exe.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    public HarvesterMock withExceptionForAllUrlRequests(String url) {
+        this.exceptionForUrl.withMatchAllRequests(url);
+        return this;
+    }
+
+    public HarvesterMock withExceptionForUrlRequests(String url, int from, int to) {
+        this.exceptionForUrl.withMatchRequests(url, from, to);
+        return this;
+    }
+
+    public HarvesterMock withFetchErrorForAllUrlRequests(String url) {
+        this.fetchErrorForUrl.withMatchAllRequests(url);
+        return this;
+    }
+
+    public HarvesterMock withFetchErrorForUrlRequests(String url, int from, int to) {
+        this.fetchErrorForUrl.withMatchRequests(url, from, to);
+        return this;
+    }
+
+    public HarvesterMock withLongFetchTimeForAllUrlRequests(String url) {
+        this.longFetchTimeForUrl.withMatchAllRequests(url);
+        return this;
+    }
+
+    public HarvesterMock withLongFetchTimeForUrlRequests(String url, int from, int to) {
+        this.longFetchTimeForUrl.withMatchRequests(url, from, to);
+        return this;
+    }
+
+    public HarvesterMock withLinksPerLevel(int linksPerLevel) {
+        this.linksPerLevel = linksPerLevel;
+        return this;
     }
 
     private class Harvester {
@@ -97,18 +143,45 @@ public class HarvesterMock {
                 this.requestObserver = requestObserver;
             }
 
+            Random rnd = new Random();
+
             @Override
             public void onNext(PageHarvestSpec pageHarvestSpec) {
                 QueuedUri fetchUri = pageHarvestSpec.getQueuedUri();
+
+                // Add request to documentLog
+                requestLog.addRequest(fetchUri.getUri());
+
+                // Simulate bug in harvester when crawling url
+                if (exceptionForUrl.match(fetchUri.getUri())) {
+                    System.out.println("Harvester failed for " + fetchUri.getUri());
+                    throw new RuntimeException("Simulated bug in harvester");
+                }
+
+                // Simulate failed page fetch when crawling url
+                if (fetchErrorForUrl.match(fetchUri.getUri())) {
+                    System.out.println("Harvest failed for " + fetchUri.getUri());
+                    PageHarvest.Builder reply = PageHarvest.newBuilder();
+                    reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION
+                            .toFetchError(new RuntimeException("Simulated fetch error").toString()));
+                    requestObserver.onNext(reply.build());
+                    requestObserver.onCompleted();
+                    return;
+                }
+
                 try {
-                    Thread.sleep(SIMULATED_PAGE_FETCH_TIME_MS);
+                    if (longFetchTimeForUrl.match(fetchUri.getUri())) {
+                        Thread.sleep(longPageFetchTimeMs);
+                    } else {
+                        Thread.sleep(pageFetchTimeMs);
+                    }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
 
                 List<QueuedUri> outlinks = new ArrayList<>();
                 // In Scope links
-                for (int i = 0; i < 5; i += 2) {
+                for (int i = 0; i < linksPerLevel; i++) {
                     QueuedUri.Builder qUri = QueuedUri.newBuilder()
                             .setUri(fetchUri.getUri() + "/p" + (i % 5))
                             .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
@@ -168,12 +241,6 @@ public class HarvesterMock {
 
             @Override
             public void onError(Throwable t) {
-                Status status = Status.fromThrowable(t);
-                if (status.getCode().equals(Status.DEADLINE_EXCEEDED.getCode())) {
-                    LOG.warn("Deadline expired while talking to the frontier", status);
-                } else {
-                    LOG.warn("Get next page failed: {}", status);
-                }
                 lock.countDown();
             }
 
