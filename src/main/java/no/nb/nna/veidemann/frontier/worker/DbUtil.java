@@ -29,6 +29,9 @@ public class DbUtil {
     }
 
     public static void writeLog(QueuedUriWrapper qUri, int statusCode) throws DbException {
+        if (statusCode == 0) {
+            throw new IllegalArgumentException("Should never write log with status code 0, but did for " + qUri.getUri());
+        }
         CrawlLog crawlLog = CrawlLog.newBuilder()
                 .setRequestedUri(qUri.getUri())
                 .setJobExecutionId(qUri.getJobExecutionId())

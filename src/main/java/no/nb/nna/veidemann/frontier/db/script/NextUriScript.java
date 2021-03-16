@@ -11,24 +11,25 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.Set;
 
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.*;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.UCHG;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.UEID;
 
 public class NextUriScript extends RedisJob<NextUriScriptResult> {
     public NextUriScript() {
-        super("nexturi");
+        super("nextUriScript");
     }
 
     public static class NextUriScriptResult {
         public final String id;
-        public final String chgp;
+        public final String chgId;
         public final String eid;
         public final long sequence;
         public final long fetchTime;
         public final FutureOptional<QueuedUri> future;
 
-        public NextUriScriptResult(String id, String chgp, String eid, long sequence, long fetchTime) {
+        public NextUriScriptResult(String id, String chgId, String eid, long sequence, long fetchTime) {
             this.id = id;
-            this.chgp = chgp;
+            this.chgId = chgId;
             this.eid = eid;
             this.sequence = sequence;
             this.fetchTime = fetchTime;
@@ -37,7 +38,7 @@ public class NextUriScript extends RedisJob<NextUriScriptResult> {
 
         public NextUriScriptResult(FutureOptional<QueuedUri> future) {
             this.id = null;
-            this.chgp = null;
+            this.chgId = null;
             this.eid = null;
             this.sequence = 0;
             this.fetchTime = 0;
@@ -47,23 +48,23 @@ public class NextUriScript extends RedisJob<NextUriScriptResult> {
 
     public NextUriScriptResult run(JedisContext ctx, CrawlHostGroup crawlHostGroup) {
         return execute(ctx, jedis -> {
-            String chg = createChgPolitenessKey(crawlHostGroup);
+            String chgId = crawlHostGroup.getId();
             // Find the crawl execution with the highest score
-            Set<Tuple> mResult = jedis.zrevrangeByScoreWithScores(UCHG + chg, "+inf", "-inf", 0, 1);
+            Set<Tuple> mResult = jedis.zrevrangeByScoreWithScores(UCHG + chgId, "+inf", "-inf", 0, 1);
             if (mResult.isEmpty()) {
                 return new NextUriScriptResult(FutureOptional.empty());
             }
             double maxScore = mResult.iterator().next().getScore();
 
             // Choose weighted random crawl execution
-            Set<String> eResult = jedis.zrangeByScore(UCHG + chg, String.valueOf(Math.random() * maxScore), "+inf", 0, 1);
+            Set<String> eResult = jedis.zrangeByScore(UCHG + chgId, String.valueOf(Math.random() * maxScore), "+inf", 0, 1);
             if (eResult.isEmpty()) {
                 return new NextUriScriptResult(FutureOptional.empty());
             }
             String eid = eResult.iterator().next();
 
             // Get first URI for crawl execution
-            Set<String> uResult = jedis.zrange(UEID + chg + ":" + eid, 0, 0);
+            Set<String> uResult = jedis.zrange(UEID + chgId + ":" + eid, 0, 0);
             if (uResult.isEmpty()) {
                 return new NextUriScriptResult(FutureOptional.empty());
             }
@@ -80,7 +81,7 @@ public class NextUriScript extends RedisJob<NextUriScriptResult> {
                 // A fetchable URI was found, return it
                 return new NextUriScriptResult(
                         nextUrl,
-                        chg,
+                        chgId,
                         eid,
                         nextUrlSequence,
                         nextUrlEarliestFetch);

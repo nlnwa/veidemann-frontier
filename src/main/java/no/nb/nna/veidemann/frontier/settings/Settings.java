@@ -50,7 +50,7 @@ public class Settings extends CommonSettings {
 
     private String redisHost;
 
-    private String redisPort;
+    private int redisPort;
 
     private Duration busyTimeout;
 
@@ -166,11 +166,11 @@ public class Settings extends CommonSettings {
         this.redisHost = redisHost;
     }
 
-    public String getRedisPort() {
+    public int getRedisPort() {
         return redisPort;
     }
 
-    public void setRedisPort(String redisPort) {
+    public void setRedisPort(int redisPort) {
         this.redisPort = redisPort;
     }
 }

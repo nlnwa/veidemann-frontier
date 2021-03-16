@@ -1,16 +1,9 @@
----
---- KEYS[1]: chgpKey
---- KEYS[2]: busyKey
---- ARGV[1]: chgp
----
+local chgKey = KEYS[1]
 
 local count = 0
-local c = redis.call('GET', KEYS[1]);
+-- Get count from chgKey
+local c = redis.call('HGET', chgKey, "qc");
 if c ~= 'nil' then
     count = c
-    local isBusy = redis.call('ZRANK', KEYS[2], ARGV[1])
-    if isBusy ~= 'nil' then
-        count = count - 1
-    end
 end
 return count

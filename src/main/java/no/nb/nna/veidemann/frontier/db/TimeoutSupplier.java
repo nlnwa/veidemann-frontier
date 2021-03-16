@@ -156,6 +156,7 @@ public class TimeoutSupplier<E> implements AutoCloseable {
 
     @Override
     public void close() throws InterruptedException {
+        LOG.debug("Closing TimeoutSupplier");
         lock.lock();
         try {
             running = false;
@@ -169,6 +170,7 @@ public class TimeoutSupplier<E> implements AutoCloseable {
         timeoutThread.shutdown();
         supplierThread.awaitTermination(5, TimeUnit.SECONDS);
         timeoutThread.awaitTermination(5, TimeUnit.SECONDS);
+        LOG.debug("TimeoutSupplier closed");
     }
 
     private class Element {

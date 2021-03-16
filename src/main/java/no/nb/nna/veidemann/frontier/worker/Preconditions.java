@@ -15,14 +15,20 @@
  */
 package no.nb.nna.veidemann.frontier.worker;
 
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.SettableFuture;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.PolitenessConfig.RobotsPolicy;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbException;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.UnknownHostException;
+import java.net.InetSocketAddress;
 
 /**
  *
@@ -40,8 +46,8 @@ public class Preconditions {
     private Preconditions() {
     }
 
-    public static PreconditionState checkPreconditions(Frontier frontier, ConfigObject crawlConfig, StatusWrapper status,
-                                                       QueuedUriWrapper qUri) throws DbException {
+    public static ListenableFuture<PreconditionState> checkPreconditions(Frontier frontier, ConfigObject crawlConfig, StatusWrapper status,
+                                                                         QueuedUriWrapper qUri) throws DbException {
 
         qUri.clearError();
 
@@ -57,35 +63,99 @@ public class Preconditions {
             }
             status.incrementDocumentsOutOfScope();
             frontier.getOutOfScopeHandlerClient().submitUri(qUri.getQueuedUri());
-            return PreconditionState.DENIED;
+            return Futures.immediateFuture(PreconditionState.DENIED);
         }
-
-        ConfigObject politeness = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
-        ConfigObject browserConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getBrowserConfigRef());
 
         if (qUri.isUnresolved()) {
+            SettableFuture<PreconditionState> future = SettableFuture.create();
 
-            if (resolveDns(frontier, crawlConfig, politeness, qUri)) {
+            LOG.debug("Resolve ip for URI '{}'", qUri.getUri());
+            Futures.addCallback(frontier.getDnsServiceClient()
+                            .resolve(qUri.getHost(), qUri.getPort(), crawlConfig.getCrawlConfig().getCollectionRef()),
+                    new ResolveDnsCallback(frontier, qUri, status, crawlConfig, future),
+                    MoreExecutors.directExecutor());
+            return future;
+        } else {
+            return Futures.immediateFuture(PreconditionState.OK);
+        }
+
+    }
+
+    static class ResolveDnsCallback implements FutureCallback<InetSocketAddress> {
+        private final Frontier frontier;
+        private final QueuedUriWrapper qUri;
+        private final StatusWrapper status;
+        private final ConfigObject crawlConfig;
+        private final SettableFuture<PreconditionState> future;
+
+        public ResolveDnsCallback(Frontier frontier, QueuedUriWrapper qUri, StatusWrapper status, ConfigObject crawlConfig, SettableFuture<PreconditionState> future) {
+            this.frontier = frontier;
+            this.qUri = qUri;
+            this.status = status;
+            this.crawlConfig = crawlConfig;
+            this.future = future;
+        }
+
+        @Override
+        public void onSuccess(@Nullable InetSocketAddress result) {
+            try {
+                ConfigObject politeness = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
+                ConfigObject browserConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getBrowserConfigRef());
+
+                boolean changedCrawlHostGroup = false;
+                if (!qUri.getCrawlHostGroupId().isEmpty() && !qUri.getQueuedUri().getId().isEmpty()) {
+                    changedCrawlHostGroup = true;
+                    frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(qUri.getQueuedUri());
+                }
+                qUri.setIp(result.getAddress().getHostAddress());
                 qUri.setResolved(politeness);
-            } else {
-                DbUtil.writeLog(qUri);
-                return PreconditionState.RETRY;
-            }
 
-            if (!checkRobots(frontier, browserConfig.getBrowserConfig().getUserAgent(), crawlConfig, politeness, qUri)) {
-                status.incrementDocumentsDenied(1L);
-                DbUtil.writeLog(qUri);
-                return PreconditionState.DENIED;
+                // IP ok, check robots.txt
+                if (checkRobots(frontier, browserConfig.getBrowserConfig().getUserAgent(), crawlConfig, politeness, qUri)) {
+                    if (changedCrawlHostGroup) {
+                        frontier.getCrawlQueueManager().addToCrawlHostGroup(qUri.getQueuedUri(), false);
+                        future.set(PreconditionState.RETRY);
+                    } else {
+                        future.set(PreconditionState.OK);
+                    }
+                } else {
+                    status.incrementDocumentsDenied(1L);
+                    DbUtil.writeLog(qUri);
+                    future.set(PreconditionState.DENIED);
+                }
+            } catch (DbException e) {
+                future.setException(e);
             }
         }
 
-        return PreconditionState.OK;
+        @Override
+        public void onFailure(Throwable t) {
+            LOG.info("Failed ip resolution for URI '{}' by extracting host '{}' and port '{}'.",
+                    qUri.getUri(),
+                    qUri.getHost(),
+                    qUri.getPort());
+
+            try {
+                qUri.setError(ExtraStatusCodes.FAILED_DNS.toFetchError(t.toString()))
+                        .setEarliestFetchDelaySeconds(qUri.getCrawlHostGroup().getRetryDelaySeconds());
+                PreconditionState state = ErrorHandler.fetchFailure(frontier, status, qUri, qUri.getError());
+                if (state == PreconditionState.RETRY && !qUri.getCrawlHostGroupId().isEmpty() && !qUri.getQueuedUri().getId().isEmpty()) {
+                    try {
+                        qUri.save();
+                    } catch (DbException e) {
+                        LOG.error("Unable to update uri earliest fetch timestamp", e);
+                    }
+                }
+                future.set(state);
+            } catch (DbException e) {
+                future.setException(e);
+            }
+        }
     }
 
     private static boolean checkRobots(Frontier frontier, String userAgent, ConfigObject crawlConfig, ConfigObject politeness,
                                        QueuedUriWrapper qUri) throws DbException {
         LOG.debug("Check robots.txt for URI '{}'", qUri.getUri());
-        // Check robots.txt
         if (politeness.getPolitenessConfig().getRobotsPolicy() != RobotsPolicy.IGNORE_ROBOTS
                 && !frontier.getRobotsServiceClient().isAllowed(qUri.getQueuedUri(), userAgent, politeness,
                 crawlConfig.getCrawlConfig().getCollectionRef())) {
@@ -94,33 +164,6 @@ public class Preconditions {
             return false;
         }
         return true;
-    }
-
-    private static boolean resolveDns(Frontier frontier, ConfigObject crawlConfig, ConfigObject politeness, QueuedUriWrapper qUri) {
-        if (!qUri.getIp().isEmpty()) {
-            return true;
-        }
-
-        LOG.debug("Resolve ip for URI '{}'", qUri.getUri());
-
-        try {
-            String ip = frontier.getDnsServiceClient()
-                    .resolve(qUri.getHost(), qUri.getPort(), crawlConfig.getCrawlConfig().getCollectionRef())
-                    .getAddress()
-                    .getHostAddress();
-            qUri.setIp(ip);
-            return true;
-        } catch (UnknownHostException ex) {
-            LOG.info("Failed ip resolution for URI '{}' by extracting host '{}' and port '{}'",
-                    qUri.getUri(),
-                    qUri.getHost(),
-                    qUri.getPort(),
-                    ex.getCause());
-
-            qUri.setError(ExtraStatusCodes.FAILED_DNS.toFetchError(ex.toString()))
-                    .setEarliestFetchDelaySeconds(politeness.getPolitenessConfig().getRetryDelaySeconds());
-            return false;
-        }
     }
 
 }

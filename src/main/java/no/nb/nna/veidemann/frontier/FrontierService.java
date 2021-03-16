@@ -15,19 +15,20 @@
  */
 package no.nb.nna.veidemann.frontier;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigBeanFactory;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
 import io.prometheus.client.exporter.HTTPServer;
 import io.prometheus.client.hotspot.DefaultExports;
-import no.nb.nna.veidemann.commons.client.DnsServiceClient;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.opentracing.TracerFactory;
 import no.nb.nna.veidemann.frontier.api.FrontierApiServer;
 import no.nb.nna.veidemann.frontier.settings.Settings;
+import no.nb.nna.veidemann.frontier.worker.DnsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
 import org.slf4j.Logger;
@@ -37,6 +38,11 @@ import redis.clients.jedis.JedisPoolConfig;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Class for launching the service.
@@ -47,12 +53,18 @@ public class FrontierService {
 
     private static final Settings SETTINGS;
 
+    public static final ExecutorService asyncFunctionsExecutor;
+
     static {
         Config config = ConfigFactory.load();
         config.checkValid(ConfigFactory.defaultReference());
         SETTINGS = ConfigBeanFactory.create(config, Settings.class);
 
         TracerFactory.init("Frontier");
+
+        asyncFunctionsExecutor = new ThreadPoolExecutor(2, 128, 15, TimeUnit.SECONDS,
+                new SynchronousQueue<>(),
+                new ThreadFactoryBuilder().setNameFormat("asyncFunc-%d").build(), new CallerRunsPolicy());
     }
 
     /**
@@ -77,16 +89,16 @@ public class FrontierService {
         }
 
         JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
-        jedisPoolConfig.setMaxTotal(24);
+        jedisPoolConfig.setMaxTotal(64);
         try (DbService db = DbService.configure(SETTINGS);
 
-             JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getRedisHost() + ":" + SETTINGS.getRedisPort()));
+             JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getRedisHost() + ':' + SETTINGS.getRedisPort()));
 
              RobotsServiceClient robotsServiceClient = new RobotsServiceClient(
                      SETTINGS.getRobotsEvaluatorHost(), SETTINGS.getRobotsEvaluatorPort());
 
              DnsServiceClient dnsServiceClient = new DnsServiceClient(
-                     SETTINGS.getDnsResolverHost(), SETTINGS.getDnsResolverPort());
+                     SETTINGS.getDnsResolverHost(), SETTINGS.getDnsResolverPort(), asyncFunctionsExecutor);
 
              ScopeServiceClient scopeServiceClient = new ScopeServiceClient(
                      SETTINGS.getScopeserviceHost(), SETTINGS.getScopeservicePort());
@@ -94,7 +106,7 @@ public class FrontierService {
              OutOfScopeHandlerClient outOfScopeHandlerClient = new OutOfScopeHandlerClient(
                      SETTINGS.getOutOfScopeHandlerHost(), SETTINGS.getOutOfScopeHandlerPort());
 
-             Frontier frontier = new Frontier(jedisPool, robotsServiceClient, dnsServiceClient, scopeServiceClient,
+             Frontier frontier = new Frontier(SETTINGS, jedisPool, robotsServiceClient, dnsServiceClient, scopeServiceClient,
                      outOfScopeHandlerClient);
         ) {
 

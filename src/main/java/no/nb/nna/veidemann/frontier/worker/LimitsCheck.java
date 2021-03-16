@@ -16,7 +16,6 @@
 package no.nb.nna.veidemann.frontier.worker;
 
 import com.google.protobuf.util.Timestamps;
-import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
@@ -77,12 +76,11 @@ public class LimitsCheck {
         return false;
     }
 
-    public static boolean isRetryLimitReached(ConfigObject politeness, QueuedUriWrapper qUri) throws DbException {
-        if (qUri.getRetries() < politeness.getPolitenessConfig().getMaxRetries()) {
+    public static boolean isRetryLimitReached(QueuedUriWrapper qUri) throws DbException {
+        if (qUri.getRetries() < qUri.getCrawlHostGroup().getMaxRetries()) {
             qUri.clearError();
             return false;
         } else {
-            qUri.setError(ExtraStatusCodes.RETRY_LIMIT_REACHED.toFetchError());
             DbUtil.writeLog(qUri, ExtraStatusCodes.RETRY_LIMIT_REACHED.getCode());
             return true;
         }

@@ -1,13 +1,14 @@
----
---- KEYS[1]: busyKey
---- KEYS[2]: chgpKey
---- ARGV[1]: chgp
---- ARGV[2]: busyExpireTime
----
+local busyKey = KEYS[1]
+local chgKey = KEYS[2]
 
-redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
-local queueCount = redis.call('GET', KEYS[2])
+local chgId = ARGV[1]
+local expiresTimeMillis = ARGV[2]
 
---- Increment the queue count while CHG is busy to ensure URI removal while busy does not remove CHG
-redis.call('INCR', KEYS[2])
+local isBusy = redis.call('ZRANK', busyKey, chgId)
+if isBusy then
+    error("CHG was already busy")
+end
+
+redis.call('ZADD', busyKey, expiresTimeMillis, chgId)
+local queueCount = redis.call('HGET', chgKey, "qc")
 return queueCount

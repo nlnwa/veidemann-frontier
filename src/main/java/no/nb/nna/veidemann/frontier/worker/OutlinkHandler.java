@@ -26,15 +26,13 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URISyntaxException;
 import java.util.Collection;
+import java.util.concurrent.ExecutionException;
 
 public class OutlinkHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(OutlinkHandler.class);
 
-    private final CrawlExecution crawlExecution;
-
-    public OutlinkHandler(CrawlExecution crawlExecution) {
-        this.crawlExecution = crawlExecution;
+    private OutlinkHandler() {
     }
 
     /**
@@ -45,30 +43,33 @@ public class OutlinkHandler {
      * @return true if outlink was added to queue
      * @throws DbException
      */
-    public boolean processOutlink(
-            Frontier frontier, QueuedUri outlink, Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef)
+    public static boolean processOutlink(Frontier frontier, StatusWrapper status, QueuedUriWrapper parentUri,
+                                         QueuedUri outlink, Collection<Annotation> scriptParameters, ConfigRef scopeScriptRef)
             throws DbException {
 
         boolean wasQueued = false;
         try {
-            QueuedUriWrapper outUri = QueuedUriWrapper.getOutlinkQueuedUriWrapper(frontier, crawlExecution.qUri, outlink,
-                    crawlExecution.collectionConfig.getMeta().getName(), scriptParameters, scopeScriptRef);
-            outUri.setSequence(outUri.getDiscoveryPath().length());
+            String canonicalizedUri = frontier.getScopeServiceClient().canonicalize(outlink.getUri());
+            QueuedUri.Builder ol = outlink.toBuilder()
+                    .setUri(canonicalizedUri);
 
-            PreconditionState check = Preconditions.checkPreconditions(crawlExecution.frontier,
-                    crawlExecution.crawlConfig, crawlExecution.status, outUri);
+            QueuedUriWrapper outUri = QueuedUriWrapper.getOutlinkQueuedUriWrapper(frontier, parentUri, ol,
+                    null, scriptParameters, scopeScriptRef);
+
+            PreconditionState check = Preconditions.checkPreconditions(frontier,
+                    status.getCrawlConfig(), status, outUri).get();
             switch (check) {
                 case OK:
                     LOG.debug("Found new URI: {}, queueing.", outUri.getUri());
-                    outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
-                    if (outUri.addUriToQueue(crawlExecution.status)) {
+                    outUri.setPriorityWeight(status.getCrawlConfig().getCrawlConfig().getPriorityWeight());
+                    if (outUri.addUriToQueue(status)) {
                         wasQueued = true;
                     }
                     break;
                 case RETRY:
                     LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getUri());
-                    outUri.setPriorityWeight(crawlExecution.crawlConfig.getCrawlConfig().getPriorityWeight());
-                    if (outUri.addUriToQueue(crawlExecution.status)) {
+                    outUri.setPriorityWeight(status.getCrawlConfig().getCrawlConfig().getPriorityWeight());
+                    if (outUri.addUriToQueue(status)) {
                         wasQueued = true;
                     }
                     break;
@@ -76,8 +77,10 @@ public class OutlinkHandler {
                     break;
             }
         } catch (URISyntaxException ex) {
-            crawlExecution.status.incrementDocumentsFailed();
+            status.incrementDocumentsFailed();
             LOG.info("Illegal URI {}", ex);
+        } catch (InterruptedException | ExecutionException e) {
+            LOG.error(e.toString(), e);
         }
         return wasQueued;
     }

@@ -1,14 +1,16 @@
 package no.nb.nna.veidemann.frontier.db.script;
 
 import com.google.common.collect.ImmutableList;
-import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-public class ChgBusyTimeoutScript extends RedisJob<Long> {
-    // time to wait after timeout to give the Frontier a possibility to clean up
-    // before doing it the hard way here
-    final static long WAIT_TIME_MS = 5000;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_BUSY_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.SESSION_TO_CHG_KEY;
+
+public class ChgBusyTimeoutScript extends RedisJob<List<String>> {
+    private static final Logger LOG = LoggerFactory.getLogger(ChgBusyTimeoutScript.class);
 
     final LuaScript chgBusyTimeoutScript;
 
@@ -17,12 +19,17 @@ public class ChgBusyTimeoutScript extends RedisJob<Long> {
         chgBusyTimeoutScript = new LuaScript("chg_busy_timeout.lua");
     }
 
-    public Long run(JedisContext ctx) {
+    /**
+     * Move CrawlHostGroups which have timed out in busy state, to ready state.
+     *
+     * @param ctx Jedis context
+     * @return number of CrawlHostGroups moved from busy to ready
+     */
+    public List<String> run(JedisContext ctx) {
         return execute(ctx, jedis -> {
-            List<String> keys = ImmutableList.of(CrawlQueueManager.CHG_BUSY_KEY, CrawlQueueManager.CHG_READY_KEY);
-            List<String> args = ImmutableList.of(String.valueOf(System.currentTimeMillis() - WAIT_TIME_MS),
-                    CrawlQueueManager.CHG_PREFIX);
-            return (Long) chgBusyTimeoutScript.runString(jedis, keys, args);
+            List<String> keys = ImmutableList.of(CHG_BUSY_KEY, SESSION_TO_CHG_KEY);
+            List<String> args = ImmutableList.of(String.valueOf(System.currentTimeMillis()));
+            return (List<String>) chgBusyTimeoutScript.runString(jedis, keys, args);
         });
     }
 }
