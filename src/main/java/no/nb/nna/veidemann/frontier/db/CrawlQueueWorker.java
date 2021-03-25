@@ -96,6 +96,7 @@ public class CrawlQueueWorker implements AutoCloseable {
                 String toBeRemoved = ctx.getJedis().lpop(CRAWL_EXECUTION_TIMEOUT_KEY);
                 while (toBeRemoved != null) {
                     try {
+                        // TODO: This is probably not safe enough. Need to aquire CrawlHostGroup
                         StatusWrapper s = StatusWrapper.getStatusWrapper(frontier, toBeRemoved);
                         switch (s.getState()) {
                             case SLEEPING:
@@ -105,6 +106,10 @@ public class CrawlQueueWorker implements AutoCloseable {
                                         .deleteQueuedUrisForExecution(ctx, toBeRemoved))
                                         .setEndState(State.ABORTED_TIMEOUT)
                                         .saveStatus();
+                                break;
+                            case FETCHING:
+                                LOG.debug("CrawlExecution '{}' with state {} was busy. Requeue for removal", s.getId(), s.getState());
+                                ctx.getJedis().rpush(CRAWL_EXECUTION_TIMEOUT_KEY, s.getId());
                                 break;
                             default:
                                 LOG.trace("CrawlExecution '{}' with state {} was already finished", s.getId(), s.getState());

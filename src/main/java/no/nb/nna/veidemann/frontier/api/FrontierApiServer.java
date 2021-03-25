@@ -23,8 +23,6 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.ServerInterceptors;
 import io.grpc.services.HealthStatusManager;
-import io.opentracing.contrib.ServerTracingInterceptor;
-import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
@@ -55,10 +53,11 @@ public class FrontierApiServer {
     }
 
     public FrontierApiServer(ServerBuilder<?> serverBuilder, Frontier frontier) {
-        ServerTracingInterceptor tracingInterceptor = new ServerTracingInterceptor.Builder(GlobalTracer.get())
-                .withTracedAttributes(ServerTracingInterceptor.ServerRequestAttribute.CALL_ATTRIBUTES,
-                        ServerTracingInterceptor.ServerRequestAttribute.METHOD_TYPE)
-                .build();
+//        TODO: Add tracing
+//        ServerTracingInterceptor tracingInterceptor = new ServerTracingInterceptor.Builder(GlobalTracer.get())
+//                .withTracedAttributes(ServerTracingInterceptor.ServerRequestAttribute.CALL_ATTRIBUTES,
+//                        ServerTracingInterceptor.ServerRequestAttribute.METHOD_TYPE)
+//                .build();
 
         healthCheckerExecutorService = Executors.newScheduledThreadPool(1);
         health = new HealthStatusManager();
@@ -66,7 +65,9 @@ public class FrontierApiServer {
 
         frontierService = new FrontierService(frontier);
         server = serverBuilder
-                .addService(ServerInterceptors.intercept(tracingInterceptor.intercept(frontierService),
+//                TODO: Add tracing
+//                .addService(ServerInterceptors.intercept(tracingInterceptor.intercept(frontierService),
+                .addService(ServerInterceptors.intercept(frontierService,
                         ConcurrencyLimitServerInterceptor.newBuilder(
                                 new GrpcServerLimiterBuilder()
                                         .partitionByMethod()

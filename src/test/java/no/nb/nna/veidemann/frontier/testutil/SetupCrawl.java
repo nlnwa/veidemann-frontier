@@ -16,10 +16,13 @@
 
 package no.nb.nna.veidemann.frontier.testutil;
 
+import com.google.common.util.concurrent.SettableFuture;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
+import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.config.v1.PolitenessConfig.RobotsPolicy;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionId;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest.Builder;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
@@ -31,7 +34,9 @@ import no.nb.nna.veidemann.commons.db.ExecutionsAdapter;
 import no.nb.nna.veidemann.commons.util.ApiTools;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ForkJoinPool;
 
@@ -39,10 +44,14 @@ public class SetupCrawl {
     ConfigAdapter c = DbService.getInstance().getConfigAdapter();
     ExecutionsAdapter e = DbService.getInstance().getExecutionsAdapter();
     public List<ConfigObject> seeds = new ArrayList<>();
+    public Map<String, SettableFuture<CrawlExecutionId>> crawlExecutions = new HashMap<>();
     public ConfigObject crawlJob;
 
     public void setup(int seedCount) throws DbException {
+        setup(seedCount, CrawlLimitsConfig.getDefaultInstance());
+    }
 
+    public void setup(int seedCount, CrawlLimitsConfig limits) throws DbException {
         ConfigObject.Builder defaultCrawlHostGroupConfig = c.getConfigObject(ConfigRef.newBuilder()
                 .setKind(Kind.crawlHostGroupConfig).setId("chg-default")
                 .build())
@@ -98,7 +107,7 @@ public class SetupCrawl {
         crawlJobBuilder.getCrawlJobBuilder()
                 .setCrawlConfigRef(ApiTools.refForConfig(crawlConfig))
                 .setScopeScriptRef(ApiTools.refForConfig(scopeScript))
-                .getLimitsBuilder();//.setDepth(2);
+                .setLimits(limits);
         crawlJob = c.saveConfigObject(crawlJobBuilder.build());
 
         genSeeds(ApiTools.refForConfig(crawlJob), seedCount);
@@ -124,11 +133,12 @@ public class SetupCrawl {
 
             ConfigObject seed = c.saveConfigObject(seedBuilder.build());
             seeds.add(seed);
+            crawlExecutions.put(seed.getId(), SettableFuture.create());
             System.out.print(".");
-            if (i == 10) {
-                seed = c.saveConfigObject(seedBuilder.build());
-                seeds.add(seed);
-            }
+//            if (i == 10) {
+//                seed = c.saveConfigObject(seedBuilder.build());
+//                seeds.add(seed);
+//            }
         }
         System.out.println(" DONE");
         System.out.flush();
@@ -148,7 +158,8 @@ public class SetupCrawl {
                         .setJob(crawlJob)
                         .setSeed(seed)
                         .setJobExecutionId(jes.getId());
-                frontierStub.crawlSeed(requestBuilder.build());
+                CrawlExecutionId ceid = frontierStub.crawlSeed(requestBuilder.build());
+                crawlExecutions.get(seed.getId()).set(ceid);
                 return null;
             });
             System.out.print(".");

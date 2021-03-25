@@ -38,6 +38,8 @@ public class DnsResolverMock implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(DnsResolverMock.class);
     Pattern seedNumPattern = Pattern.compile("stress-(\\d\\d)(\\d\\d)(\\d\\d).com");
 
+    long simulatedLookupTimeMs = 0L;
+
     public final RequestLog requestLog = new RequestLog();
     private final RequestMatcher exceptionForHost = new RequestMatcher(requestLog);
     private final RequestMatcher fetchErrorForHost = new RequestMatcher(requestLog);
@@ -79,6 +81,11 @@ public class DnsResolverMock implements AutoCloseable {
         return this;
     }
 
+    public DnsResolverMock withSimulatedLookupTimeMs(long time) {
+        this.simulatedLookupTimeMs = time;
+        return this;
+    }
+
     public class DnsService extends DnsResolverGrpc.DnsResolverImplBase {
         @Override
         public void resolve(ResolveRequest request, StreamObserver<ResolveReply> responseObserver) {
@@ -93,6 +100,12 @@ public class DnsResolverMock implements AutoCloseable {
             if (fetchErrorForHost.match(request.getHost())) {
                 responseObserver.onError(Status.INTERNAL.withDescription("Simulated DNS lookup error").asRuntimeException());
                 return;
+            }
+
+            try {
+                Thread.sleep(simulatedLookupTimeMs);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
 
             Matcher m = seedNumPattern.matcher(request.getHost());

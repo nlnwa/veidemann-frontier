@@ -166,7 +166,9 @@ public class Frontier implements AutoCloseable {
             Futures.transformAsync(future, c -> {
                 switch (c) {
                     case DENIED:
-                        if (qUri.shouldInclude()) {
+                        if (status.getState() == State.ABORTED_MANUAL) {
+                            // Job was aborted before crawl execution was created. Ignore
+                        } else if (qUri.shouldInclude()) {
                             // Seed was in scope, but failed for other reason
                             LOG.warn("Seed '{}' could not be crawled. Error: {}", qUri.getUri(), qUri.getError());
                             status.setEndState(State.FAILED)
@@ -227,6 +229,7 @@ public class Frontier implements AutoCloseable {
                     .setError(ExtraStatusCodes.ILLEGAL_URI.toFetchError(ex.toString()))
                     .saveStatus();
         } catch (Exception ex) {
+            LOG.warn(ex.toString(), ex);
             status.incrementDocumentsFailed()
                     .setEndState(CrawlExecutionStatus.State.FAILED)
                     .setError(ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError(ex.toString()))
@@ -283,6 +286,9 @@ public class Frontier implements AutoCloseable {
         Map rMap = ProtoUtils.protoToRethink(status);
         rMap.put("lastChangeTime", r.now());
         rMap.put("createdTime", r.now());
+        // Set desiredState to ABORTED_MANUAL if JobExecution has desiredState ABORTED_MANUAL.
+        rMap.put("desiredState", r.table(Tables.JOB_EXECUTIONS.name).get(jobExecutionId).g("desiredState").default_("")
+                .do_(j -> r.branch(j.eq("ABORTED_MANUAL"), "ABORTED_MANUAL", "UNDEFINED")));
 
         crawlQueueManager.updateJobExecutionStatus(jobExecutionId, State.UNDEFINED, State.CREATED, CrawlExecutionStatusChange.getDefaultInstance());
 

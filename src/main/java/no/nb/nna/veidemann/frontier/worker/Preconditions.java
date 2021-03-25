@@ -21,6 +21,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
+import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.config.v1.PolitenessConfig.RobotsPolicy;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbException;
@@ -40,7 +41,8 @@ public class Preconditions {
     public enum PreconditionState {
         OK,
         DENIED,
-        RETRY
+        RETRY,
+//        FINISHED
     }
 
     private Preconditions() {
@@ -50,6 +52,14 @@ public class Preconditions {
                                                                          QueuedUriWrapper qUri) throws DbException {
 
         qUri.clearError();
+
+        if (CrawlExecutionHelpers.isAborted(frontier, status)) {
+            return Futures.immediateFuture(PreconditionState.DENIED);
+        }
+
+        if (isLimitReached(frontier, status, qUri)) {
+            return Futures.immediateFuture(PreconditionState.DENIED);
+        }
 
         if (!qUri.shouldInclude()) {
             LOG.debug("URI '{}' precluded by scope check. Reason: {}", qUri.getUri(), qUri.getExcludedReasonStatusCode());
@@ -79,6 +89,11 @@ public class Preconditions {
             return Futures.immediateFuture(PreconditionState.OK);
         }
 
+    }
+
+    static boolean isLimitReached(Frontier frontier, StatusWrapper status, QueuedUriWrapper qUri) throws DbException {
+        CrawlLimitsConfig limits = status.getCrawlJobConfig().getCrawlJob().getLimits();
+        return LimitsCheck.isLimitReached(frontier, limits, status, qUri);
     }
 
     static class ResolveDnsCallback implements FutureCallback<InetSocketAddress> {

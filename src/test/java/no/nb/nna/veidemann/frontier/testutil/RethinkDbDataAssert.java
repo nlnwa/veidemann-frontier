@@ -2,9 +2,12 @@ package no.nb.nna.veidemann.frontier.testutil;
 
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlLog;
+import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
+import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import org.assertj.core.api.AbstractAssert;
 import org.assertj.core.data.TemporalOffset;
@@ -34,6 +37,14 @@ public class RethinkDbDataAssert extends AbstractAssert<RethinkDbDataAssert, Ret
         return new CrawlLogsAssert(actual.getCrawlLogs());
     }
 
+    public IdMappedAssert<CrawlExecutionStatusAssert, CrawlExecutionStatus> crawlExecutionStatuses() throws DbException {
+        return new IdMappedAssert<>(actual.getCrawlExecutionStatuses(), CrawlExecutionStatusAssert.class, CrawlExecutionStatus.class);
+    }
+
+    public IdMappedAssert<JobExecutionStatusAssert, JobExecutionStatus> jobExecutionStatuses() throws DbException {
+        return new IdMappedAssert<>(actual.getJobExecutionStatuses(), JobExecutionStatusAssert.class, JobExecutionStatus.class);
+    }
+
     public static class CrawlLogsAssert extends AbstractAssert<CrawlLogsAssert, List<CrawlLog>> {
         public CrawlLogsAssert(List<CrawlLog> actual) {
             super(actual, CrawlLogsAssert.class);
@@ -46,24 +57,7 @@ public class RethinkDbDataAssert extends AbstractAssert<RethinkDbDataAssert, Ret
             }
             return this;
         }
-
-//        public CrawlHostGroupFromMapAssert id(String id) {
-//            return new CrawlHostGroupFromMapAssert(this, actual.get(id));
-//        }
     }
-
-//    public static class CrawlHostGroupFromMapAssert extends CrawlHostGroupAssert<CrawlHostGroupFromMapAssert> {
-//        final CrawlHostGroupMapAssert origin;
-//
-//        public CrawlHostGroupFromMapAssert(CrawlHostGroupMapAssert origin, CrawlHostGroup actual) {
-//            super(actual);
-//            this.origin = origin;
-//        }
-//
-//        public CrawlHostGroupFromMapAssert id(String id) {
-//            return origin.id(id);
-//        }
-//    }
 
     public static class DelayQueueAssert extends AbstractAssert<DelayQueueAssert, List<Tuple>> {
         final String name;
