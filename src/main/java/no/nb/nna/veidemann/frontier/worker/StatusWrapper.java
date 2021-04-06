@@ -192,6 +192,9 @@ public class StatusWrapper {
 
     private void updateJobExecution(RethinkDbConnection conn, String jobExecutionId) throws DbException {
         JobExecutionStatus tjes = frontier.getCrawlQueueManager().getTempJobExecutionStatus(jobExecutionId);
+        if (tjes == null) {
+            return;
+        }
 
         // Get a count of still running CrawlExecutions for this execution's JobExecution
         Long notEndedCount = tjes.getExecutionsStateMap().entrySet().stream()

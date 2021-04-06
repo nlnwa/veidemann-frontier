@@ -785,7 +785,7 @@ public class HarvestTest {
                         assertThat(s.get(CrawlExecutionStatus.State.ABORTED_MANUAL.name())).isEqualTo(0);
                         assertThat(s.get(CrawlExecutionStatus.State.ABORTED_TIMEOUT.name())).isGreaterThan(0);
                         assertThat(s.get(CrawlExecutionStatus.State.ABORTED_SIZE.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.FINISHED.name())).isGreaterThan(0);
+                        assertThat(s.get(CrawlExecutionStatus.State.FINISHED.name())).isGreaterThanOrEqualTo(0);
                         assertThat(s.get(CrawlExecutionStatus.State.FAILED.name())).isEqualTo(0);
                         assertThat(s.get(CrawlExecutionStatus.State.CREATED.name())).isEqualTo(0);
                         assertThat(s.get(CrawlExecutionStatus.State.FETCHING.name())).isEqualTo(0);

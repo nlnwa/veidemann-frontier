@@ -102,9 +102,6 @@ public class CrawlExecutionHelpers {
             case ABORTED_MANUAL:
             case ABORTED_TIMEOUT:
             case ABORTED_SIZE:
-                status.incrementDocumentsDenied(frontier.getCrawlQueueManager()
-                        .deleteQueuedUrisForExecution(status.getId()));
-
                 // Set end state to desired state
                 status.setEndState(status.getDesiredState()).saveStatus();
                 return true;
