@@ -219,7 +219,7 @@ public class CrawlQueueManager implements AutoCloseable {
             LOG.trace("Found Crawl Host Group ({})", chgId);
 
             // try to find URI for CrawlHostGroup
-            FutureOptional<QueuedUri> foqu = getNextFetchableQueuedUriToForCrawlHostGroup(jedisContext, chg, conn);
+            FutureOptional<QueuedUri> foqu = getNextFetchableQueuedUriForCrawlHostGroup(jedisContext, chg, conn);
 
             if (foqu.isPresent()) {
                 LOG.debug("Found Queued URI: {}, crawlHostGroup: {}",
@@ -358,7 +358,7 @@ public class CrawlQueueManager implements AutoCloseable {
         return Hashing.sha256().hashUnencodedChars(uri).toString();
     }
 
-    FutureOptional<QueuedUri> getNextFetchableQueuedUriToForCrawlHostGroup(JedisContext ctx, CrawlHostGroup crawlHostGroup, RethinkDbConnection conn) {
+    FutureOptional<QueuedUri> getNextFetchableQueuedUriForCrawlHostGroup(JedisContext ctx, CrawlHostGroup crawlHostGroup, RethinkDbConnection conn) {
         NextUriScriptResult res = nextUriScript.run(ctx, crawlHostGroup);
         if (res.future != null) {
             return res.future;

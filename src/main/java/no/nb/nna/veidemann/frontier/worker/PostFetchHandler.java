@@ -17,7 +17,6 @@ package no.nb.nna.veidemann.frontier.worker;
 
 import com.google.protobuf.util.Durations;
 import com.google.protobuf.util.Timestamps;
-import io.opentracing.Span;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
@@ -58,7 +57,7 @@ public class PostFetchHandler {
     private long delayMs = 0L;
     private long fetchTimeMs = 0L;
 
-    private Span span;
+//    private Span span;
 
     private AtomicBoolean done = new AtomicBoolean();
     private AtomicBoolean finalized = new AtomicBoolean();
@@ -160,30 +159,35 @@ public class PostFetchHandler {
             try {
                 calculateDelay();
             } catch (DbException e) {
-                e.printStackTrace();
+                LOG.error(e.toString(), e);
             }
 
             frontier.postFetchThreadPool.submit(() -> {
                 MDC.put("eid", qUri.getExecutionId());
                 MDC.put("uri", qUri.getUri());
 
-
-                // Handle outlinks
-                for (QueuedUri outlink : outlinkQueue) {
-                    try {
-                        OutlinkHandler.processOutlink(frontier, status, qUri, outlink, scriptParameters, status.getCrawlJobConfig().getCrawlJob().getScopeScriptRef());
-                    } catch (DbException e) {
-                        // An error here indicates problems with DB communication. No idea how to handle that yet.
-                        LOG.error("Error processing outlink: {}", e.toString(), e);
-                    } catch (Throwable e) {
-                        // Catch everything to ensure crawl host group gets released.
-                        // Discovering this message in logs should be investigated as a possible bug.
-                        LOG.error("Unknown error while processing outlink. Might be a bug", e);
+                try {
+                    if (!CrawlExecutionHelpers.isAborted(frontier, status)) {
+                        // Handle outlinks
+                        for (QueuedUri outlink : outlinkQueue) {
+                            try {
+                                OutlinkHandler.processOutlink(frontier, status, qUri, outlink, scriptParameters, status.getCrawlJobConfig().getCrawlJob().getScopeScriptRef());
+                            } catch (DbException e) {
+                                // An error here indicates problems with DB communication. No idea how to handle that yet.
+                                LOG.error("Error processing outlink: {}", e.toString(), e);
+                            } catch (Throwable e) {
+                                // Catch everything to ensure crawl host group gets released.
+                                // Discovering this message in logs should be investigated as a possible bug.
+                                LOG.error("Unknown error while processing outlink. Might be a bug", e);
+                            }
+                        }
                     }
+                } catch (DbException e) {
+                    LOG.error(e.toString(), e);
                 }
 
                 CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, getDelay(TimeUnit.MILLISECONDS));
-                span.finish();
+//                span.finish();
             });
         }
     }

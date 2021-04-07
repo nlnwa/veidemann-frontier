@@ -23,8 +23,6 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import io.opentracing.contrib.ClientTracingInterceptor;
-import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.dnsresolver.v1.DnsResolverGrpc;
 import no.nb.nna.veidemann.api.dnsresolver.v1.ResolveReply;
@@ -58,8 +56,10 @@ public class DnsServiceClient implements AutoCloseable {
 
     public DnsServiceClient(ManagedChannelBuilder<?> channelBuilder, ExecutorService executor) {
         LOG.debug("Setting up DNS service client");
-        ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
-        channel = channelBuilder.intercept(tracingInterceptor).build();
+//        TODO: Add tracing
+//        ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
+//        channel = channelBuilder.intercept(tracingInterceptor).build();
+        channel = channelBuilder.build();
         futureStub = DnsResolverGrpc.newFutureStub(channel);
         this.executor = executor;
     }

@@ -13,7 +13,6 @@ import no.nb.nna.veidemann.frontier.db.script.ChgBusyTimeoutScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgDelayedQueueScript;
 import no.nb.nna.veidemann.frontier.db.script.RedisJob.JedisContext;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
-import no.nb.nna.veidemann.frontier.worker.StatusWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
@@ -96,21 +95,10 @@ public class CrawlQueueWorker implements AutoCloseable {
                 String toBeRemoved = ctx.getJedis().lpop(CRAWL_EXECUTION_TIMEOUT_KEY);
                 while (toBeRemoved != null) {
                     try {
-                        StatusWrapper s = StatusWrapper.getStatusWrapper(frontier, toBeRemoved);
-                        switch (s.getState()) {
-                            case SLEEPING:
-                            case CREATED:
-                                LOG.debug("CrawlExecution '{}' with state {} timed out", s.getId(), s.getState());
-                                s.incrementDocumentsDenied(frontier.getCrawlQueueManager()
-                                        .deleteQueuedUrisForExecution(ctx, toBeRemoved))
-                                        .setEndState(State.ABORTED_TIMEOUT)
-                                        .saveStatus();
-                                break;
-                            default:
-                                LOG.trace("CrawlExecution '{}' with state {} was already finished", s.getId(), s.getState());
-                        }
+                        conn.getExecutionsAdapter().setCrawlExecutionStateAborted(toBeRemoved, State.ABORTED_TIMEOUT);
                     } catch (Exception e) {
                         // Don't worry execution will be deleted at some point later
+                        ctx.getJedis().rpush(CRAWL_EXECUTION_TIMEOUT_KEY, toBeRemoved);
                     }
 
                     toBeRemoved = ctx.getJedis().lpop(CRAWL_EXECUTION_TIMEOUT_KEY);

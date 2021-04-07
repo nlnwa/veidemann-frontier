@@ -21,10 +21,6 @@ import com.google.protobuf.Empty;
 import io.grpc.Status;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
-import io.opentracing.ActiveSpan;
-import io.opentracing.contrib.OpenTracingContextKey;
-import io.opentracing.tag.Tags;
-import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.frontier.v1.CountResponse;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionId;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
@@ -67,13 +63,15 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public void crawlSeed(CrawlSeedRequest request, StreamObserver<CrawlExecutionId> responseObserver) {
-        try (ActiveSpan span = GlobalTracer.get()
-                .buildSpan("scheduleSeed")
-                .asChildOf(OpenTracingContextKey.activeSpan())
-                .withTag(Tags.COMPONENT.getKey(), "Frontier")
-                .withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_SERVER)
-                .withTag("uri", request.getSeed().getMeta().getName())
-                .startActive()) {
+//        TODO: Add tracing
+//        try (ActiveSpan span = GlobalTracer.get()
+//                .buildSpan("scheduleSeed")
+//                .asChildOf(OpenTracingContextKey.activeSpan())
+//                .withTag(Tags.COMPONENT.getKey(), "Frontier")
+//                .withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_SERVER)
+//                .withTag("uri", request.getSeed().getMeta().getName())
+//                .startActive()) {
+        try {
             Futures.addCallback(ctx.getFrontier().scheduleSeed(request),
                     new FutureCallback<CrawlExecutionStatus>() {
                         public void onSuccess(CrawlExecutionStatus reply) {

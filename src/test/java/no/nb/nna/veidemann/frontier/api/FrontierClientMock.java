@@ -21,8 +21,6 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
-import io.opentracing.contrib.ClientTracingInterceptor;
-import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
@@ -48,8 +46,7 @@ public class FrontierClientMock implements AutoCloseable {
      * Construct client for accessing Frontier using the existing channel.
      */
     public FrontierClientMock(ManagedChannelBuilder<?> channelBuilder) {
-        ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
-        channel = channelBuilder.intercept(tracingInterceptor).build();
+        channel = channelBuilder.build();
         asyncStub = FrontierGrpc.newStub(channel).withWaitForReady();
     }
 

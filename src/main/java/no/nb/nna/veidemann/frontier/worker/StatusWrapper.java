@@ -177,6 +177,7 @@ public class StatusWrapper {
             // Check if this update was setting the end time
             boolean wasNotEnded = changes.get(0).get("old_val") == null || changes.get(0).get("old_val").get("endTime") == null;
             CrawlExecutionStatus newDoc = ProtoUtils.rethinkToProto(changes.get(0).get("new_val"), CrawlExecutionStatus.class);
+
             frontier.getCrawlQueueManager().updateJobExecutionStatus(newDoc.getJobExecutionId(), status.getState(), newDoc.getState(), change);
             if (wasNotEnded && newDoc.hasEndTime()) {
                 updateJobExecution(conn, newDoc.getJobExecutionId());
@@ -191,6 +192,9 @@ public class StatusWrapper {
 
     private void updateJobExecution(RethinkDbConnection conn, String jobExecutionId) throws DbException {
         JobExecutionStatus tjes = frontier.getCrawlQueueManager().getTempJobExecutionStatus(jobExecutionId);
+        if (tjes == null) {
+            return;
+        }
 
         // Get a count of still running CrawlExecutions for this execution's JobExecution
         Long notEndedCount = tjes.getExecutionsStateMap().entrySet().stream()
@@ -219,7 +223,11 @@ public class StatusWrapper {
                     state = jes.getState();
                     break;
                 default:
-                    state = JobExecutionStatus.State.FINISHED;
+                    if (jes.getDesiredState() != null && jes.getDesiredState() != JobExecutionStatus.State.UNDEFINED) {
+                        state = jes.getDesiredState();
+                    } else {
+                        state = JobExecutionStatus.State.FINISHED;
+                    }
                     break;
             }
 
@@ -275,6 +283,10 @@ public class StatusWrapper {
 
     public CrawlExecutionStatus.State getState() {
         return getCrawlExecutionStatus().getState();
+    }
+
+    public CrawlExecutionStatus.State getDesiredState() {
+        return getCrawlExecutionStatus().getDesiredState();
     }
 
     public StatusWrapper setState(CrawlExecutionStatus.State state) {

@@ -16,6 +16,9 @@ public class JobExecutionGetScript extends RedisJob<JobExecutionStatus> {
         return execute(ctx, jedis -> {
             String key = JOB_EXECUTION_PREFIX + jobExecutionId;
 
+            if (!jedis.exists(key)) {
+                return null;
+            }
             JobExecutionStatusRedisMapper m = new JobExecutionStatusRedisMapper(jedis.hgetAll(key));
 
             return m.toJobExecutionStatus(jobExecutionId);

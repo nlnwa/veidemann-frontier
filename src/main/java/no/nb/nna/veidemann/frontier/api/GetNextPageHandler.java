@@ -117,6 +117,7 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
 
     @Override
     public void onError(Throwable t) {
+        LOG.warn("gRPC Error from harvester", t);
         try {
             try {
                 if (postFetchHandler == null) {

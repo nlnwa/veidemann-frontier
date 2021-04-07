@@ -11,20 +11,24 @@
 --- ARGV[9]: bytesCrawled
 ---
 
--- Update states
-if ARGV[1] ~= 'UNDEFINED' then
-    redis.call('HINCRBY', KEYS[1], ARGV[1], -1)
-end
+if ARGV[2] == 'CREATED' or redis.call('EXISTS', KEYS[1]) == 1 then
 
-if ARGV[2] ~= 'UNDEFINED' then
-    redis.call('HINCRBY', KEYS[1], ARGV[2], 1)
-end
+    -- Update states
+    if ARGV[1] ~= 'UNDEFINED' then
+        redis.call('HINCRBY', KEYS[1], ARGV[1], -1)
+    end
 
--- Update stats
-redis.call('HINCRBY', KEYS[1], "documentsCrawled", ARGV[3])
-redis.call('HINCRBY', KEYS[1], "documentsDenied", ARGV[4])
-redis.call('HINCRBY', KEYS[1], "documentsFailed", ARGV[5])
-redis.call('HINCRBY', KEYS[1], "documentsOutOfScope", ARGV[6])
-redis.call('HINCRBY', KEYS[1], "documentsRetried", ARGV[7])
-redis.call('HINCRBY', KEYS[1], "urisCrawled", ARGV[8])
-redis.call('HINCRBY', KEYS[1], "bytesCrawled", ARGV[9])
+    if ARGV[2] ~= 'UNDEFINED' then
+        redis.call('HINCRBY', KEYS[1], ARGV[2], 1)
+    end
+
+    -- Update stats
+    redis.call('HINCRBY', KEYS[1], "documentsCrawled", ARGV[3])
+    redis.call('HINCRBY', KEYS[1], "documentsDenied", ARGV[4])
+    redis.call('HINCRBY', KEYS[1], "documentsFailed", ARGV[5])
+    redis.call('HINCRBY', KEYS[1], "documentsOutOfScope", ARGV[6])
+    redis.call('HINCRBY', KEYS[1], "documentsRetried", ARGV[7])
+    redis.call('HINCRBY', KEYS[1], "urisCrawled", ARGV[8])
+    redis.call('HINCRBY', KEYS[1], "bytesCrawled", ARGV[9])
+
+end

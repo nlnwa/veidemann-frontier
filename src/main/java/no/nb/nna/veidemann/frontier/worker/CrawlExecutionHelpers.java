@@ -38,7 +38,6 @@ public class CrawlExecutionHelpers {
     public static void postFetchFinally(Frontier frontier, StatusWrapper status, QueuedUriWrapper qUri, long delayMs) {
         MDC.put("eid", qUri.getExecutionId());
         MDC.put("uri", qUri.getUri());
-
         try {
             if (qUri.hasError() && qUri.getDiscoveryPath().isEmpty()) {
                 if (qUri.getError().getCode() == ExtraStatusCodes.PRECLUDED_BY_ROBOTS.getCode()) {
@@ -99,15 +98,12 @@ public class CrawlExecutionHelpers {
     }
 
     public static boolean isAborted(Frontier frontier, StatusWrapper status) throws DbException {
-        switch (status.getState()) {
+        switch (status.getDesiredState()) {
             case ABORTED_MANUAL:
             case ABORTED_TIMEOUT:
             case ABORTED_SIZE:
-                status.incrementDocumentsDenied(frontier.getCrawlQueueManager()
-                        .deleteQueuedUrisForExecution(status.getId()));
-
-                // Re-set end state to ensure end time is updated
-                status.setEndState(status.getState()).saveStatus();
+                // Set end state to desired state
+                status.setEndState(status.getDesiredState()).saveStatus();
                 return true;
         }
         return false;

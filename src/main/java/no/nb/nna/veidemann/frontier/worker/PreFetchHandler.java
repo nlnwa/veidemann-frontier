@@ -15,18 +15,13 @@
  */
 package no.nb.nna.veidemann.frontier.worker;
 
-import io.opentracing.Span;
-import io.opentracing.tag.Tags;
-import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
-import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
-import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.db.ProtoUtils;
 import no.nb.nna.veidemann.frontier.worker.Preconditions.PreconditionState;
@@ -48,7 +43,7 @@ public class PreFetchHandler {
     final Frontier frontier;
     QueuedUriWrapper qUri;
 
-    private Span span;
+//    private Span span;
 
     public PreFetchHandler(QueuedUri uri, Frontier frontier) throws DbException {
         this.frontier = frontier;
@@ -62,8 +57,7 @@ public class PreFetchHandler {
 
         try {
             this.qUri = QueuedUriWrapper.getQueuedUriWrapperWithScopeCheck(frontier, uri, collectionConfig.getMeta().getName(),
-                    scriptParameters, status.getCrawlJobConfig().getCrawlJob().getScopeScriptRef())
-                    .clearError();
+                    scriptParameters, status.getCrawlJobConfig().getCrawlJob().getScopeScriptRef()).clearError();
         } catch (URISyntaxException ex) {
             throw new RuntimeException(ex);
         }
@@ -84,39 +78,20 @@ public class PreFetchHandler {
         MDC.put("eid", qUri.getExecutionId());
         MDC.put("uri", qUri.getUri());
 
-        span = GlobalTracer.get()
-                .buildSpan("runNextFetch")
-                .withTag(Tags.COMPONENT.getKey(), "CrawlExecution")
-                .withTag("uri", qUri.getUri())
-                .withTag("executionId", status.getId())
-                .ignoreActiveSpan()
-                .startManual();
+//        TODO: Add tracing
+//        span = GlobalTracer.get()
+//                .buildSpan("runNextFetch")
+//                .withTag(Tags.COMPONENT.getKey(), "CrawlExecution")
+//                .withTag("uri", qUri.getUri())
+//                .withTag("executionId", status.getId())
+//                .ignoreActiveSpan()
+//                .startManual();
 
         if (!qUri.getCrawlHostGroup().getSessionToken().isEmpty()) {
             throw new IllegalStateException("Fetching in progress from another harvester");
         }
 
-        CrawlLimitsConfig limits = status.getCrawlJobConfig().getCrawlJob().getLimits();
         try {
-            LimitsCheck.isLimitReached(frontier, limits, status, qUri);
-            if (CrawlExecutionHelpers.isAborted(frontier, status)) {
-                status.removeCurrentUri(qUri);
-                if (qUri.hasError() && qUri.getDiscoveryPath().isEmpty()) {
-                    DbUtil.writeLog(qUri);
-                    if (qUri.getError().getCode() == ExtraStatusCodes.PRECLUDED_BY_ROBOTS.getCode()) {
-                        // Seed precluded by robots.txt; mark crawl as finished
-                        CrawlExecutionHelpers.endCrawl(frontier, status, State.FINISHED, qUri.getError());
-                    } else {
-                        // Seed failed; mark crawl as failed
-                        CrawlExecutionHelpers.endCrawl(frontier, status, State.FAILED, qUri.getError());
-                    }
-                } else if (frontier.getCrawlQueueManager().countByCrawlExecution(status.getId()) == 0) {
-                    // No URIs in queue; mark crawl as finished
-                    CrawlExecutionHelpers.endCrawl(frontier, status, State.FINISHED);
-                }
-                return false;
-            }
-
             String curCrawlHostGroupId = qUri.getCrawlHostGroupId();
             PreconditionState check = Preconditions.checkPreconditions(frontier, status.getCrawlConfig(), status, qUri).get();
             switch (check) {

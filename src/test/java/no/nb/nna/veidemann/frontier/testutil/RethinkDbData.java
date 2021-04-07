@@ -34,19 +34,19 @@ public class RethinkDbData {
         }
     }
 
-    public List<CrawlExecutionStatus> getCrawlExecutionStatuses() throws DbQueryException, DbConnectionException {
+    public Map<String, CrawlExecutionStatus> getCrawlExecutionStatuses() throws DbQueryException, DbConnectionException {
         try (Cursor<Map<String, Object>> cursor = conn.exec(r.table(Tables.EXECUTIONS.name))) {
-            return (List<CrawlExecutionStatus>) cursor.toList().stream()
+            return cursor.toList().stream()
                     .map(v -> ProtoUtils.rethinkToProto(v, CrawlExecutionStatus.class))
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toMap(o -> o.getId(), o -> o));
         }
     }
 
-    public List<JobExecutionStatus> getJobExecutionStatuses() throws DbQueryException, DbConnectionException {
+    public Map<String, JobExecutionStatus> getJobExecutionStatuses() throws DbQueryException, DbConnectionException {
         try (Cursor<Map<String, Object>> cursor = conn.exec(r.table(Tables.JOB_EXECUTIONS.name))) {
-            return (List<JobExecutionStatus>) cursor.toList().stream()
+            return cursor.toList().stream()
                     .map(v -> ProtoUtils.rethinkToProto(v, JobExecutionStatus.class))
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toMap(o -> o.getId(), o -> o));
         }
     }
 
