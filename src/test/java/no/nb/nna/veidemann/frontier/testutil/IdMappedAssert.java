@@ -19,7 +19,7 @@ public class IdMappedAssert<ASSERT extends FromMapAssert<ASSERT, MAPPED>, MAPPED
 
     public IdMappedAssert<ASSERT, MAPPED> hasNumberOfElements(int expected) {
         if (actual.size() != expected) {
-            failWithMessage("Expected number of CrawlHostGroups to be <%d>, but was <%d>",
+            failWithMessage("Expected number of Elements to be <%d>, but was <%d>",
                     expected, actual.size());
         }
         return this;

@@ -574,7 +574,7 @@ public class HarvestTest {
     }
 
     @Test
-    public void testAbortCrawlExecution() throws Exception {
+    public void testAbortCrawlExecutionEarly() throws Exception {
         int seedCount = 1;
         int linksPerLevel = 3;
         int maxHopsFromSeed = 2;
@@ -614,7 +614,7 @@ public class HarvestTest {
                 .hasQueueTotalCount(0)
                 .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
-                .crawlExecutionStatuses().hasNumberOfElements(1)
+                .crawlExecutionStatuses().hasNumberOfElements(seedCount)
                 .elementById(crawlExecutionId)
                 .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
                 .hasStartTime(true)
@@ -628,6 +628,117 @@ public class HarvestTest {
                 .hasStartTime(true)
                 .hasEndTime(true)
                 .hasStats(0, 0, 0, 0, 0);
+
+        assertThat(redisData)
+                .hasQueueTotalCount(0)
+                .crawlHostGroups().hasNumberOfElements(0);
+        assertThat(redisData)
+                .crawlExecutionQueueCounts().hasNumberOfElements(0);
+        assertThat(redisData)
+                .sessionTokens().hasNumberOfElements(0);
+        assertThat(redisData)
+                .readyQueue().hasNumberOfElements(0);
+    }
+
+    @Test
+    public void testAbortCrawlExecutionLate() throws Exception {
+        int seedCount = 10;
+        int linksPerLevel = 3;
+        int maxHopsFromSeed = 2;
+
+        scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
+        harvesterMock.withLinksPerLevel(linksPerLevel);
+
+        SetupCrawl c = new SetupCrawl();
+        c.setup(seedCount);
+
+        Instant testStart = Instant.now();
+
+        JobExecutionStatus jes = c.runCrawl(frontierStub);
+
+        String crawlExecutionId1 = c.crawlExecutions.get(c.seeds.get(0).getId()).get().getId();
+        String crawlExecutionId2 = c.crawlExecutions.get(c.seeds.get(1).getId()).get().getId();
+        String crawlExecutionId3 = c.crawlExecutions.get(c.seeds.get(2).getId()).get().getId();
+
+        // Abort the first execution as soon as it is fetching
+        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+                .until(() -> {
+                        CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId1);
+                        if (ces.getState() == CrawlExecutionStatus.State.FETCHING) {
+                            DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId1, CrawlExecutionStatus.State.ABORTED_MANUAL);
+                            return true;
+                        }
+                        return false;
+                });
+
+
+        // Abort the second execution as soon as it is sleeping
+        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+                .until(() -> {
+                        CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId2);
+                        if (ces.getState() == CrawlExecutionStatus.State.SLEEPING) {
+                            DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId2, CrawlExecutionStatus.State.ABORTED_MANUAL);
+                            return true;
+                        }
+                        return false;
+                });
+
+
+        // Abort the third execution as soon as it is finished
+        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+                .until(() -> {
+                        CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId3);
+                        if (ces.getState() == CrawlExecutionStatus.State.FINISHED) {
+                            DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId3, CrawlExecutionStatus.State.ABORTED_MANUAL);
+                            return true;
+                        }
+                        return false;
+                });
+
+        // Wait for crawl to finish
+        await().pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).atMost(30, TimeUnit.SECONDS)
+                .until(() -> {
+                    JobExecutionStatus j = DbService.getInstance().getExecutionsAdapter().getJobExecutionStatus(jes.getId());
+                    if (j.getExecutionsStateCount() > 0) {
+                        System.out.println("STATE " + j.getExecutionsStateMap() + " :: " + j.getState());
+                        System.out.println(jedisPool.getResource().keys("*") + " :: QCT=" + jedisPool.getResource().get("QCT"));
+                    }
+                    if (State.RUNNING != j.getState() && rethinkDbData.getQueuedUris().isEmpty() && jedisPool.getResource().keys("*").size() <= 1) {
+                        return true;
+                    }
+                    return false;
+                });
+
+        Duration testTime = Duration.between(testStart, Instant.now());
+        System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
+                testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
+
+        assertThat(rethinkDbData)
+                .hasQueueTotalCount(0)
+                .crawlLogs().hasNumberOfElements(0);
+        assertThat(rethinkDbData)
+                .crawlExecutionStatuses().hasNumberOfElements(seedCount)
+                // Check first seed
+                .elementById(crawlExecutionId1)
+                .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
+                .hasStartTime(true)
+                .hasEndTime(true)
+                .hasStats(1, 0, 0, 0, 0)
+                .currentUriIdCountIsEqualTo(0)
+                // Check second seed
+                .elementById(crawlExecutionId2)
+                .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
+                .hasStartTime(true)
+                .hasEndTime(true)
+                .hasStats(1, 0, 0, 0, 1)
+                .currentUriIdCountIsEqualTo(0);
+        assertThat(rethinkDbData)
+                .jobExecutionStatuses().hasNumberOfElements(1)
+                .elementById(jes.getId())
+                .hasState(JobExecutionStatus.State.FINISHED)
+                .hasStartTime(true)
+                .hasEndTime(true)
+                .hasStats(106, 0, 0, 0, 105);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -693,7 +804,7 @@ public class HarvestTest {
                 .hasQueueTotalCount(0)
                 .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
-                .crawlExecutionStatuses().hasNumberOfElements(20);
+                .crawlExecutionStatuses().hasNumberOfElements(seedCount);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasNumberOfElements(1)
                 .elementById(jes.getId())
