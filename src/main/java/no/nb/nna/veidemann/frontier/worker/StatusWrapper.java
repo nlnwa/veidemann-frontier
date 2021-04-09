@@ -307,7 +307,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper incrementDocumentsCrawled() {
-        getChange().setAddDocumentsCrawled(1);
+        getChange().setAddDocumentsCrawled(getChange().getAddDocumentsCrawled() + 1);
         return this;
     }
 
@@ -316,7 +316,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper incrementBytesCrawled(long val) {
-        getChange().setAddBytesCrawled(val);
+        getChange().setAddBytesCrawled(getChange().getAddBytesCrawled() + val);
         return this;
     }
 
@@ -325,7 +325,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper incrementUrisCrawled(long val) {
-        getChange().setAddUrisCrawled(val);
+        getChange().setAddUrisCrawled(getChange().getAddDocumentsCrawled() + val);
         return this;
     }
 
@@ -334,7 +334,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper incrementDocumentsFailed() {
-        getChange().setAddDocumentsFailed(1);
+        getChange().setAddDocumentsFailed(getChange().getAddDocumentsFailed() + 1);
         return this;
     }
 
@@ -343,7 +343,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper incrementDocumentsOutOfScope() {
-        getChange().setAddDocumentsOutOfScope(1);
+        getChange().setAddDocumentsOutOfScope(getChange().getAddDocumentsOutOfScope() + 1);
         return this;
     }
 
@@ -352,7 +352,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper incrementDocumentsRetried() {
-        getChange().setAddDocumentsRetried(1);
+        getChange().setAddDocumentsRetried(getChange().getAddDocumentsRetried() + 1);
         return this;
     }
 
@@ -361,7 +361,7 @@ public class StatusWrapper {
     }
 
     public StatusWrapper incrementDocumentsDenied(long val) {
-        getChange().setAddDocumentsDenied(val);
+        getChange().setAddDocumentsDenied(getChange().getAddDocumentsDenied() + val);
         return this;
     }
 
