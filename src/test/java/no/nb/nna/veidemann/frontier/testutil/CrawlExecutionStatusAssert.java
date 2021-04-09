@@ -2,41 +2,22 @@ package no.nb.nna.veidemann.frontier.testutil;
 
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
+import org.assertj.core.api.AbstractAssert;
+import org.assertj.core.api.LongAssert;
 
 import java.util.Objects;
+import java.util.function.Consumer;
 
-public class CrawlExecutionStatusAssert extends IdMappedAssert.FromMapAssert<CrawlExecutionStatusAssert, CrawlExecutionStatus> {
+public class CrawlExecutionStatusAssert extends AbstractAssert<CrawlExecutionStatusAssert, CrawlExecutionStatus> {
 
-    public CrawlExecutionStatusAssert(IdMappedAssert origin, CrawlExecutionStatus actual) {
-        super(origin, actual);
+    public CrawlExecutionStatusAssert(CrawlExecutionStatus actual) {
+        super(actual, CrawlExecutionStatusAssert.class);
     }
 
     public CrawlExecutionStatusAssert hasState(State expected) {
         isNotNull();
         if (!Objects.equals(actual.getState(), expected)) {
             failWithMessage("Expected state to be <%s> but was <%s>", expected, actual.getState());
-        }
-
-        return this;
-    }
-
-    public CrawlExecutionStatusAssert hasStats(long documentsCrawled, long documentsDenied, long documentsFailed,
-                                               long documentsRetried, long documentsOutOfScope) {
-        isNotNull();
-        if (actual.getDocumentsCrawled() != documentsCrawled) {
-            failWithMessage("Expected documentsCrawled to be <%d> but was <%d>", documentsCrawled, actual.getDocumentsCrawled());
-        }
-        if (actual.getDocumentsDenied() != documentsDenied) {
-            failWithMessage("Expected documentsDenied to be <%d> but was <%d>", documentsDenied, actual.getDocumentsDenied());
-        }
-        if (actual.getDocumentsFailed() != documentsFailed) {
-            failWithMessage("Expected documentsFailed to be <%d> but was <%d>", documentsFailed, actual.getDocumentsFailed());
-        }
-        if (actual.getDocumentsRetried() != documentsRetried) {
-            failWithMessage("Expected documentsRetried to be <%d> but was <%d>", documentsRetried, actual.getDocumentsRetried());
-        }
-        if (actual.getDocumentsOutOfScope() != documentsOutOfScope) {
-            failWithMessage("Expected documentsOutOfScope to be <%d> but was <%d>", documentsOutOfScope, actual.getDocumentsOutOfScope());
         }
 
         return this;
@@ -78,23 +59,57 @@ public class CrawlExecutionStatusAssert extends IdMappedAssert.FromMapAssert<Cra
         return this;
     }
 
-//    public CrawlExecutionStatusAssert next() {
-//        return new CrawlExecutionStatusAssert(statusIterator);
-//    }
+    public CrawlExecutionStatusAssert documentsCrawledEquals(long expected) {
+        return checkCountEquals("documentsCrawled", actual.getDocumentsCrawled(), expected);
+    }
 
-//    public CrawlExecutionStatusAssert hasCrawlExecutionStatuses(EssentialQueuedUriFields... expected) {
-//        isNotNull();
-//
-//        List<EssentialQueuedUriFields> actualEessentialQueuedUriFields = actual.queuedUriList.stream()
-//                .map(qUri -> new EssentialQueuedUriFields(qUri.getUri(), qUri.getSeedUri(), qUri.getIp(), !qUri.getCrawlHostGroupId().isBlank()))
-//                .collect(Collectors.toList());
-//
-//        for (EssentialQueuedUriFields e : expected) {
-//            if (!actualEessentialQueuedUriFields.contains(e)) {
-//                failWithMessage("Expected Queued Uri's to contain <%s> but did not", e);
-//            }
-//        }
-//
-//        return this;
-//    }
+    public CrawlExecutionStatusAssert documentsCrawledSatisfies(Consumer<LongAssert> condition) {
+        return checkCountSatisfies("documentsCrawled", actual.getDocumentsCrawled(), condition);
+    }
+
+    public CrawlExecutionStatusAssert documentsDeniedEquals(long expected) {
+        return checkCountEquals("documentsDenied", actual.getDocumentsDenied(), expected);
+    }
+
+    public CrawlExecutionStatusAssert documentsDeniedSatisfies(Consumer<LongAssert> condition) {
+        return checkCountSatisfies("documentsDenied", actual.getDocumentsDenied(), condition);
+    }
+
+    public CrawlExecutionStatusAssert documentsFailedEquals(long expected) {
+        return checkCountEquals("documentsFailed", actual.getDocumentsFailed(), expected);
+    }
+
+    public CrawlExecutionStatusAssert documentsFailedSatisfies(Consumer<LongAssert> condition) {
+        return checkCountSatisfies("documentsFailed", actual.getDocumentsFailed(), condition);
+    }
+
+    public CrawlExecutionStatusAssert documentsRetriedEquals(long expected) {
+        return checkCountEquals("documentsRetried", actual.getDocumentsRetried(), expected);
+    }
+
+    public CrawlExecutionStatusAssert documentsRetriedSatisfies(Consumer<LongAssert> condition) {
+        return checkCountSatisfies("documentsRetried", actual.getDocumentsRetried(), condition);
+    }
+
+    public CrawlExecutionStatusAssert documentsOutOfScopeEquals(long expected) {
+        return checkCountEquals("documentsOutOfScope", actual.getDocumentsOutOfScope(), expected);
+    }
+
+    public CrawlExecutionStatusAssert documentsOutOfScopeSatisfies(Consumer<LongAssert> condition) {
+        return checkCountSatisfies("documentsOutOfScope", actual.getDocumentsOutOfScope(), condition);
+    }
+
+    private CrawlExecutionStatusAssert checkCountEquals(String name, long val, long expected) {
+        isNotNull();
+        if (val != expected) {
+            failWithMessage("Expected %s to be <%d> but was <%d>", name, expected, val);
+        }
+        return this;
+    }
+
+    private CrawlExecutionStatusAssert checkCountSatisfies(String name, long val, Consumer<LongAssert> condition) {
+        isNotNull();
+        condition.accept(new LongAssert(val).as(name));
+        return this;
+    }
 }

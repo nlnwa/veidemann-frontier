@@ -9,7 +9,6 @@ import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus.State;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
-import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
@@ -30,6 +29,7 @@ import no.nb.nna.veidemann.frontier.testutil.SetupCrawl;
 import no.nb.nna.veidemann.frontier.testutil.SkipUntilFilter;
 import no.nb.nna.veidemann.frontier.worker.DnsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
+import no.nb.nna.veidemann.frontier.worker.RobotsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,7 +60,6 @@ import java.util.concurrent.TimeUnit;
 
 import static com.rethinkdb.RethinkDB.r;
 import static no.nb.nna.veidemann.frontier.testutil.FrontierAssertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 @Testcontainers
@@ -159,7 +158,7 @@ public class HarvestTest {
         scopeCheckerServiceMock = new ScopeCheckerServiceMock(settings.getScopeservicePort()).start();
         harvesterMock = new HarvesterMock(frontierAsyncStub).start();
 
-        robotsServiceClient = new RobotsServiceClient(settings.getRobotsEvaluatorHost(), settings.getRobotsEvaluatorPort());
+        robotsServiceClient = new RobotsServiceClient(settings.getRobotsEvaluatorHost(), settings.getRobotsEvaluatorPort(), asyncFunctionsExecutor);
         dnsServiceClient = new DnsServiceClient(settings.getDnsResolverHost(), settings.getDnsResolverPort(), asyncFunctionsExecutor);
         scopeServiceClient = new ScopeServiceClient(settings.getScopeserviceHost(), settings.getScopeservicePort());
         outOfScopeHandlerClient = new OutOfScopeHandlerClient(settings.getOutOfScopeHandlerHost(), settings.getOutOfScopeHandlerPort());
@@ -574,6 +573,188 @@ public class HarvestTest {
     }
 
     @Test
+    public void testDeniedByRobotsTxt() throws Exception {
+        int seedCount = 2;
+        int linksPerLevel = 3;
+        int maxHopsFromSeed = 2;
+
+        scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
+        harvesterMock.withLinksPerLevel(linksPerLevel);
+        robotsEvaluatorMock
+                .withFetchDenialForUrl("http://stress-000000.com")
+                .withFetchDenialForUrl("http://stress-000001.com/p0")
+                .withFetchDenialForUrl("http://stress-000001.com/p1")
+                .withExceptionForUrl("http://stress-000001.com/p2");
+
+        SetupCrawl c = new SetupCrawl();
+        c.setup(seedCount);
+
+        Instant testStart = Instant.now();
+
+        JobExecutionStatus jes = c.runCrawl(frontierStub);
+
+
+        await().pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).atMost(20, TimeUnit.SECONDS)
+                .until(() -> {
+                    JobExecutionStatus j = DbService.getInstance().getExecutionsAdapter().getJobExecutionStatus(jes.getId());
+                    if (j.getExecutionsStateCount() > 0) {
+                        System.out.println("STATE " + j.getExecutionsStateMap() + " :: " + j.getState());
+                        System.out.println(jedisPool.getResource().keys("*") + " :: QCT=" + jedisPool.getResource().get("QCT"));
+                    }
+                    if (State.FINISHED == j.getState() && rethinkDbData.getQueuedUris().isEmpty()) {
+                        return true;
+                    }
+                    return false;
+                });
+
+        Duration testTime = Duration.between(testStart, Instant.now());
+        System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
+                testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
+
+        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        assertThat(rethinkDbData)
+                .hasQueueTotalCount(0)
+                .crawlLogs().hasNumberOfElements(3);
+        assertThat(rethinkDbData)
+                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(jes.getId(), j -> {
+            assertThat(j)
+                    .hasState(JobExecutionStatus.State.FINISHED)
+                    .hasStartTime(true)
+                    .hasEndTime(true)
+                    .documentsCrawledEquals(5)
+                    .documentsDeniedEquals(3)
+                    .documentsFailedEquals(1)
+                    .documentsRetriedEquals(0)
+                    .documentsOutOfScopeEquals(9);
+        });
+        String crawlExecutionId1 = c.crawlExecutions.get(c.seeds.get(0).getId()).get().getId();
+        String crawlExecutionId2 = c.crawlExecutions.get(c.seeds.get(1).getId()).get().getId();
+        assertThat(rethinkDbData)
+                .crawlExecutionStatuses().hasSize(seedCount)
+                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.FAILED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(0)
+                            .documentsDeniedEquals(1)
+                            .documentsFailedEquals(1)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(0)
+                            .currentUriIdCountIsEqualTo(0);
+                })
+                .hasEntrySatisfying(crawlExecutionId2, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(5)
+                            .documentsDeniedEquals(2)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(9)
+                            .currentUriIdCountIsEqualTo(0);
+                });
+
+        assertThat(redisData)
+                .hasQueueTotalCount(0)
+                .crawlHostGroups().hasNumberOfElements(0);
+        assertThat(redisData)
+                .crawlExecutionQueueCounts().hasNumberOfElements(0);
+        assertThat(redisData)
+                .sessionTokens().hasNumberOfElements(0);
+        assertThat(redisData)
+                .readyQueue().hasNumberOfElements(0);
+    }
+
+    @Test
+    public void testRecheckScope() throws Exception {
+        int seedCount = 1;
+        int linksPerLevel = 2;
+        int maxHopsFromSeed = 2;
+
+        scopeCheckerServiceMock
+                .withMaxHopsFromSeed(maxHopsFromSeed)
+                .withDenialForUrlRequests("http://stress-000000.com/p0", 2, 2);
+        harvesterMock.withLinksPerLevel(linksPerLevel);
+
+        SetupCrawl c = new SetupCrawl();
+        c.setup(seedCount);
+
+        Instant testStart = Instant.now();
+
+        JobExecutionStatus jes = c.runCrawl(frontierStub);
+
+
+        await().pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).atMost(20, TimeUnit.SECONDS)
+                .until(() -> {
+                    JobExecutionStatus j = DbService.getInstance().getExecutionsAdapter().getJobExecutionStatus(jes.getId());
+                    if (j.getExecutionsStateCount() > 0) {
+                        System.out.println("STATE " + j.getExecutionsStateMap() + " :: " + j.getState());
+                        System.out.println(jedisPool.getResource().keys("*") + " :: QCT=" + jedisPool.getResource().get("QCT"));
+                    }
+                    if (State.FINISHED == j.getState() && rethinkDbData.getQueuedUris().isEmpty()) {
+                        return true;
+                    }
+                    return false;
+                });
+
+        Duration testTime = Duration.between(testStart, Instant.now());
+        System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
+                testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
+
+        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        assertThat(rethinkDbData)
+                .hasQueueTotalCount(0)
+                .crawlLogs().hasNumberOfElements(0);
+        assertThat(rethinkDbData)
+                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(jes.getId(), j -> {
+            assertThat(j)
+                    .hasState(JobExecutionStatus.State.FINISHED)
+                    .hasStartTime(true)
+                    .hasEndTime(true)
+                    .documentsCrawledEquals(4)
+                    .documentsDeniedEquals(0)
+                    .documentsFailedEquals(0)
+                    .documentsRetriedEquals(0)
+                    .documentsOutOfScopeEquals(5)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_MANUAL, 0)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_TIMEOUT, 0)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_SIZE, 0)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.FINISHED, 1)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.FAILED, 0)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.CREATED, 0)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
+                    .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
+        });
+        String crawlExecutionId1 = c.crawlExecutions.get(c.seeds.get(0).getId()).get().getId();
+        assertThat(rethinkDbData)
+                .crawlExecutionStatuses().hasSize(seedCount)
+                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(4)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(5)
+                            .currentUriIdCountIsEqualTo(0);
+                });
+
+        assertThat(redisData)
+                .hasQueueTotalCount(0)
+                .crawlHostGroups().hasNumberOfElements(0);
+        assertThat(redisData)
+                .crawlExecutionQueueCounts().hasNumberOfElements(0);
+        assertThat(redisData)
+                .sessionTokens().hasNumberOfElements(0);
+        assertThat(redisData)
+                .readyQueue().hasNumberOfElements(0);
+    }
+
+    @Test
     public void testAbortCrawlExecutionEarly() throws Exception {
         int seedCount = 1;
         int linksPerLevel = 3;
@@ -614,20 +795,32 @@ public class HarvestTest {
                 .hasQueueTotalCount(0)
                 .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
-                .crawlExecutionStatuses().hasNumberOfElements(seedCount)
-                .elementById(crawlExecutionId)
-                .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
-                .hasStartTime(true)
-                .hasEndTime(true)
-                .hasStats(0, 0, 0, 0, 0)
-                .currentUriIdCountIsEqualTo(0);
+                .crawlExecutionStatuses().hasSize(seedCount)
+                .hasEntrySatisfying(crawlExecutionId, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(0)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(0)
+                            .currentUriIdCountIsEqualTo(0);
+                });
         assertThat(rethinkDbData)
-                .jobExecutionStatuses().hasNumberOfElements(1)
-                .elementById(jes.getId())
-                .hasState(JobExecutionStatus.State.FINISHED)
-                .hasStartTime(true)
-                .hasEndTime(true)
-                .hasStats(0, 0, 0, 0, 0);
+                .jobExecutionStatuses().hasSize(1)
+                .hasEntrySatisfying(jes.getId(), s -> {
+                    assertThat(s)
+                            .hasState(JobExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(0)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(0);
+                });
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -659,40 +852,41 @@ public class HarvestTest {
         String crawlExecutionId1 = c.crawlExecutions.get(c.seeds.get(0).getId()).get().getId();
         String crawlExecutionId2 = c.crawlExecutions.get(c.seeds.get(1).getId()).get().getId();
         String crawlExecutionId3 = c.crawlExecutions.get(c.seeds.get(2).getId()).get().getId();
+        String crawlExecutionId4 = c.crawlExecutions.get(c.seeds.get(3).getId()).get().getId();
 
         // Abort the first execution as soon as it is fetching
         await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
-                        CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId1);
-                        if (ces.getState() == CrawlExecutionStatus.State.FETCHING) {
-                            DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId1, CrawlExecutionStatus.State.ABORTED_MANUAL);
-                            return true;
-                        }
-                        return false;
+                    CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId1);
+                    if (ces.getState() == CrawlExecutionStatus.State.FETCHING) {
+                        DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId1, CrawlExecutionStatus.State.ABORTED_MANUAL);
+                        return true;
+                    }
+                    return false;
                 });
 
 
         // Abort the second execution as soon as it is sleeping
-        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
-                        CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId2);
-                        if (ces.getState() == CrawlExecutionStatus.State.SLEEPING) {
-                            DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId2, CrawlExecutionStatus.State.ABORTED_MANUAL);
-                            return true;
-                        }
-                        return false;
+                    CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId2);
+                    if (ces.getState() == CrawlExecutionStatus.State.SLEEPING) {
+                        DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId2, CrawlExecutionStatus.State.ABORTED_MANUAL);
+                        return true;
+                    }
+                    return false;
                 });
 
 
         // Abort the third execution as soon as it is finished
-        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
-                        CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId3);
-                        if (ces.getState() == CrawlExecutionStatus.State.FINISHED) {
-                            DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId3, CrawlExecutionStatus.State.ABORTED_MANUAL);
-                            return true;
-                        }
-                        return false;
+                    CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId3);
+                    if (ces.getState() == CrawlExecutionStatus.State.FINISHED) {
+                        DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId3, CrawlExecutionStatus.State.ABORTED_MANUAL);
+                        return true;
+                    }
+                    return false;
                 });
 
         // Wait for crawl to finish
@@ -717,28 +911,80 @@ public class HarvestTest {
                 .hasQueueTotalCount(0)
                 .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
-                .crawlExecutionStatuses().hasNumberOfElements(seedCount)
+                .crawlExecutionStatuses().hasSize(seedCount)
                 // Check first seed
-                .elementById(crawlExecutionId1)
-                .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
-                .hasStartTime(true)
-                .hasEndTime(true)
-                .hasStats(1, 0, 0, 0, 0)
-                .currentUriIdCountIsEqualTo(0)
+                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(1)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeSatisfies(d -> d.isBetween(0L, 2L))
+                            .currentUriIdCountIsEqualTo(0);
+                })
                 // Check second seed
-                .elementById(crawlExecutionId2)
-                .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
-                .hasStartTime(true)
-                .hasEndTime(true)
-                .hasStats(1, 0, 0, 0, 1)
-                .currentUriIdCountIsEqualTo(0);
+                .hasEntrySatisfying(crawlExecutionId2, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.ABORTED_MANUAL)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(1)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeSatisfies(d -> d.isBetween(0L, 2L))
+                            .currentUriIdCountIsEqualTo(0);
+                })
+                // Check third seed
+                .hasEntrySatisfying(crawlExecutionId3, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(13)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(27)
+                            .currentUriIdCountIsEqualTo(0);
+                })
+                // Check fourth seed
+                .hasEntrySatisfying(crawlExecutionId4, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(13)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(27)
+                            .currentUriIdCountIsEqualTo(0);
+                });
         assertThat(rethinkDbData)
-                .jobExecutionStatuses().hasNumberOfElements(1)
-                .elementById(jes.getId())
-                .hasState(JobExecutionStatus.State.FINISHED)
-                .hasStartTime(true)
-                .hasEndTime(true)
-                .hasStats(106, 0, 0, 0, 105);
+                .jobExecutionStatuses().hasSize(1)
+                .hasEntrySatisfying(jes.getId(), j -> {
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(106)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(216)
+                            .executionsStateCountSatifies(CrawlExecutionStatus.State.ABORTED_MANUAL, d -> d.isGreaterThan(0))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_TIMEOUT, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_SIZE, 0)
+                            .executionsStateCountSatifies(CrawlExecutionStatus.State.FINISHED, d -> d.isGreaterThan(0))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FAILED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.CREATED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
+                });
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -804,29 +1050,27 @@ public class HarvestTest {
                 .hasQueueTotalCount(0)
                 .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
-                .crawlExecutionStatuses().hasNumberOfElements(seedCount);
+                .crawlExecutionStatuses().hasSize(seedCount);
         assertThat(rethinkDbData)
-                .jobExecutionStatuses().hasNumberOfElements(1)
-                .elementById(jes.getId())
-                .hasState(JobExecutionStatus.State.ABORTED_MANUAL)
-                .hasStartTime(true)
-                .hasEndTime(true)
-                .satisfies(j -> {
-                    assertThat(j.getDocumentsCrawled()).isGreaterThan(0);
-                    assertThat(j.getDocumentsDenied()).isEqualTo(0);
-                    assertThat(j.getDocumentsFailed()).isEqualTo(0);
-                    assertThat(j.getDocumentsRetried()).isEqualTo(0);
-                    assertThat(j.getDocumentsOutOfScope()).isGreaterThan(0);
-                    assertThat(j.getExecutionsStateMap()).satisfies(s -> {
-                        assertThat(s.get(CrawlExecutionStatus.State.ABORTED_MANUAL.name())).isGreaterThan(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.ABORTED_TIMEOUT.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.ABORTED_SIZE.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.FINISHED.name())).isGreaterThan(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.FAILED.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.CREATED.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.FETCHING.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.SLEEPING.name())).isEqualTo(0);
-                    });
+                .jobExecutionStatuses().hasSize(1)
+                .hasEntrySatisfying(jes.getId(), j -> {
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.ABORTED_MANUAL)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledSatisfies(d -> d.isGreaterThan(0))
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeSatisfies(d -> d.isGreaterThan(0))
+                            .executionsStateCountSatifies(CrawlExecutionStatus.State.ABORTED_MANUAL, d -> d.isGreaterThan(0))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_TIMEOUT, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_SIZE, 0)
+                            .executionsStateCountSatifies(CrawlExecutionStatus.State.FINISHED, d -> d.isGreaterThan(0))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FAILED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.CREATED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
                 });
 
         assertThat(redisData)
@@ -844,10 +1088,12 @@ public class HarvestTest {
     public void testAbortTimeout() throws Exception {
         int seedCount = 20;
         int linksPerLevel = 3;
+        int outOfScopeLinksPerLevel = 2;
         int maxHopsFromSeed = 2;
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
+        harvesterMock.withOutOfScopeLinksPerLevel(outOfScopeLinksPerLevel);
         dnsResolverMock.withSimulatedLookupTimeMs(300);
 
         SetupCrawl c = new SetupCrawl();
@@ -879,29 +1125,27 @@ public class HarvestTest {
                 .hasQueueTotalCount(0)
                 .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
-                .crawlExecutionStatuses().hasNumberOfElements(20);
+                .crawlExecutionStatuses().hasSize(20);
         assertThat(rethinkDbData)
-                .jobExecutionStatuses().hasNumberOfElements(1)
-                .elementById(jes.getId())
-                .hasState(JobExecutionStatus.State.FINISHED)
-                .hasStartTime(true)
-                .hasEndTime(true)
-                .satisfies(j -> {
-                    assertThat(j.getDocumentsCrawled()).isGreaterThan(0);
-                    assertThat(j.getDocumentsDenied()).isEqualTo(0);
-                    assertThat(j.getDocumentsFailed()).isEqualTo(0);
-                    assertThat(j.getDocumentsRetried()).isEqualTo(0);
-                    assertThat(j.getDocumentsOutOfScope()).isGreaterThan(0);
-                    assertThat(j.getExecutionsStateMap()).satisfies(s -> {
-                        assertThat(s.get(CrawlExecutionStatus.State.ABORTED_MANUAL.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.ABORTED_TIMEOUT.name())).isGreaterThan(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.ABORTED_SIZE.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.FINISHED.name())).isGreaterThanOrEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.FAILED.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.CREATED.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.FETCHING.name())).isEqualTo(0);
-                        assertThat(s.get(CrawlExecutionStatus.State.SLEEPING.name())).isEqualTo(0);
-                    });
+                .jobExecutionStatuses().hasSize(1)
+                .hasEntrySatisfying(jes.getId(), j -> {
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledSatisfies(d -> d.isGreaterThan(0))
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeSatisfies(d -> d.isGreaterThan(0))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_MANUAL, 0)
+                            .executionsStateCountSatifies(CrawlExecutionStatus.State.ABORTED_TIMEOUT, d -> d.isGreaterThan(0))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_SIZE, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FINISHED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FAILED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.CREATED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
                 });
 
         assertThat(redisData)

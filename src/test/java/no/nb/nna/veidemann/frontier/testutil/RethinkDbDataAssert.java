@@ -10,6 +10,7 @@ import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import org.assertj.core.api.AbstractAssert;
+import org.assertj.core.api.MapAssert;
 import org.assertj.core.data.TemporalOffset;
 import redis.clients.jedis.Tuple;
 
@@ -37,12 +38,12 @@ public class RethinkDbDataAssert extends AbstractAssert<RethinkDbDataAssert, Ret
         return new CrawlLogsAssert(actual.getCrawlLogs());
     }
 
-    public IdMappedAssert<CrawlExecutionStatusAssert, CrawlExecutionStatus> crawlExecutionStatuses() throws DbException {
-        return new IdMappedAssert<>(actual.getCrawlExecutionStatuses(), CrawlExecutionStatusAssert.class, CrawlExecutionStatus.class);
+    public MapAssert<String, CrawlExecutionStatus> crawlExecutionStatuses() throws DbException {
+        return new MapAssert<>(actual.getCrawlExecutionStatuses());
     }
 
-    public IdMappedAssert<JobExecutionStatusAssert, JobExecutionStatus> jobExecutionStatuses() throws DbException {
-        return new IdMappedAssert<>(actual.getJobExecutionStatuses(), JobExecutionStatusAssert.class, JobExecutionStatus.class);
+    public MapAssert<String, JobExecutionStatus> jobExecutionStatuses() throws DbException {
+        return new MapAssert<>(actual.getJobExecutionStatuses());
     }
 
     public static class CrawlLogsAssert extends AbstractAssert<CrawlLogsAssert, List<CrawlLog>> {
