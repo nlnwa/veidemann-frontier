@@ -34,7 +34,6 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
-import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;

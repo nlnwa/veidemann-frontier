@@ -41,7 +41,9 @@ public class ScopeCheckerServiceMock implements AutoCloseable {
 
     final Server server;
     public final RequestLog requestLog = new RequestLog();
+    private final RequestMatcher denialForUrl = new RequestMatcher(requestLog);
     int maxHopsFromSeed = 0;
+    boolean allowOffSeedHops = false;
 
     public ScopeCheckerServiceMock(int port) {
         server = ServerBuilder.forPort(port)
@@ -52,6 +54,21 @@ public class ScopeCheckerServiceMock implements AutoCloseable {
 
     public ScopeCheckerServiceMock withMaxHopsFromSeed(int maxHopsFromSeed) {
         this.maxHopsFromSeed = maxHopsFromSeed;
+        return this;
+    }
+
+    public ScopeCheckerServiceMock withAllowOffSeedHops(boolean allowOffSeedHops) {
+        this.allowOffSeedHops = allowOffSeedHops;
+        return this;
+    }
+
+    public ScopeCheckerServiceMock withDenialForAllUrlRequests(String url) {
+        this.denialForUrl.withMatchAllRequests(url);
+        return this;
+    }
+
+    public ScopeCheckerServiceMock withDenialForUrlRequests(String url, int from, int to) {
+        this.denialForUrl.withMatchRequests(url, from, to);
         return this;
     }
 
@@ -123,29 +140,19 @@ public class ScopeCheckerServiceMock implements AutoCloseable {
 
                 if (request.getQueuedUri().getDiscoveryPath().length() > maxHopsFromSeed) {
                     // Limit depth
-//                    System.out.println("Scope check denied for depth " + qUri);
                     response.setEvaluation(Evaluation.EXCLUDE)
                             .setExcludeReason(ExtraStatusCodes.TOO_MANY_HOPS.getCode())
                             .setError(ExtraStatusCodes.TOO_MANY_HOPS.toFetchError());
-                } else if (!qUri.startsWith(seed)) {
+                } else if (!allowOffSeedHops && !qUri.startsWith(seed)) {
                     // Deny off host hops
-//                    System.out.println("Scope check denied for off seed " + qUri);
                     response.setEvaluation(Evaluation.EXCLUDE)
                             .setExcludeReason(ExtraStatusCodes.BLOCKED.getCode())
                             .setError(ExtraStatusCodes.BLOCKED.toFetchError());
-//                } else if (qUri.contains("stress-000015.com")) {
-//                    // Limit specific host, will reject seed
-//                    System.out.println("Scope check denied for uri matches " + qUri);
-//                    response.setEvaluation(Evaluation.EXCLUDE)
-//                            .setExcludeReason(ExtraStatusCodes.BLOCKED.getCode())
-//                            .setError(ExtraStatusCodes.BLOCKED.toFetchError());
-//                } else if (qUri.equals("http://stress-000062.com/p0") && requestLog.getCount(qUri) >= 2) {
-//                    System.out.println("????????? " + requestLog.getCount(qUri));
-//                    // Limit specific host/path after accepting first time. This trigger the recheck.
-//                    System.out.println("Scope recheck denied for uri matches " + qUri);
-//                    response.setEvaluation(Evaluation.EXCLUDE)
-//                            .setExcludeReason(ExtraStatusCodes.BLOCKED.getCode())
-//                            .setError(ExtraStatusCodes.BLOCKED.toFetchError());
+                } else if (denialForUrl.match(qUri)) {
+                    // Limit specific host, will reject seed
+                    response.setEvaluation(Evaluation.EXCLUDE)
+                            .setExcludeReason(ExtraStatusCodes.BLOCKED.getCode())
+                            .setError(ExtraStatusCodes.BLOCKED.toFetchError());
                 }
 
                 URL u = new URL(qUri);
@@ -160,6 +167,7 @@ public class ScopeCheckerServiceMock implements AutoCloseable {
                         .setIncludeCheckUri(icUri)
                         .build());
                 responseObserver.onCompleted();
+                LOG.debug("Scope evaluated to {} for '{}'.", response.getEvaluation(), qUri);
             } catch (MalformedURLException e) {
                 e.printStackTrace();
             }

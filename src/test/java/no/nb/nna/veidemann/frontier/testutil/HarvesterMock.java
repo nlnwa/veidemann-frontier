@@ -23,7 +23,6 @@ import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
-import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,6 +44,7 @@ public class HarvesterMock implements AutoCloseable {
     private final RequestMatcher fetchErrorForUrl = new RequestMatcher(requestLog);
     private final RequestMatcher longFetchTimeForUrl = new RequestMatcher(requestLog);
     int linksPerLevel = 0;
+    int outOfScopeLinksPerLevel = 0;
     long pageFetchTimeMs = 10;
     long longPageFetchTimeMs = 3000;
 
@@ -112,6 +112,11 @@ public class HarvesterMock implements AutoCloseable {
         return this;
     }
 
+    public HarvesterMock withOutOfScopeLinksPerLevel(int outOfScopeLinksPerLevel) {
+        this.outOfScopeLinksPerLevel = outOfScopeLinksPerLevel;
+        return this;
+    }
+
     private class Harvester {
         public void harvest() throws InterruptedException {
             CountDownLatch lock = new CountDownLatch(1);
@@ -154,13 +159,11 @@ public class HarvesterMock implements AutoCloseable {
 
                 // Simulate bug in harvester when crawling url
                 if (exceptionForUrl.match(fetchUri.getUri())) {
-                    System.out.println("Harvester failed for " + fetchUri.getUri());
                     throw new RuntimeException("Simulated bug in harvester");
                 }
 
                 // Simulate failed page fetch when crawling url
                 if (fetchErrorForUrl.match(fetchUri.getUri())) {
-                    System.out.println("Harvest failed for " + fetchUri.getUri());
                     PageHarvest.Builder reply = PageHarvest.newBuilder();
                     reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION
                             .toFetchError(new RuntimeException("Simulated fetch error").toString()));
@@ -191,31 +194,16 @@ public class HarvesterMock implements AutoCloseable {
                             .setIp(fetchUri.getIp());
                     outlinks.add(qUri.build());
                 }
-                // Mixed scope
-                for (int i = 0; i < 15; i += 2) {
-                    String url = String.format("http://stress-%06d.com", RandomUtils.nextInt(0, 50));
+                // Out of Scope scope links
+                for (int i = 0; i < outOfScopeLinksPerLevel; i++) {
                     QueuedUri.Builder qUri = QueuedUri.newBuilder()
-                            .setUri(url + "/p" + (i % 2))
+                            .setUri("http://www.example" + i + ".com/foo")
                             .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
                             .setJobExecutionId(fetchUri.getJobExecutionId())
                             .setExecutionId(fetchUri.getExecutionId())
                             .setCrawlHostGroupId(fetchUri.getCrawlHostGroupId())
                             .setIp(fetchUri.getIp());
                     outlinks.add(qUri.build());
-                }
-                // Out of Scope scope links
-                for (int j = 0; j < 5; j++) {
-                    int r = RandomUtils.nextInt(1, 100);
-                    for (int i = 0; i < 5; i++) {
-                        QueuedUri.Builder qUri = QueuedUri.newBuilder()
-                                .setUri("http://www.example" + r + ".com/p" + i)
-                                .setDiscoveryPath(fetchUri.getDiscoveryPath() + "L")
-                                .setJobExecutionId(fetchUri.getJobExecutionId())
-                                .setExecutionId(fetchUri.getExecutionId())
-                                .setCrawlHostGroupId(fetchUri.getCrawlHostGroupId())
-                                .setIp(fetchUri.getIp());
-                        outlinks.add(qUri.build());
-                    }
                 }
 
                 try {

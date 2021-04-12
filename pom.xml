@@ -28,7 +28,7 @@
 
         <veidemann.api.version>1.0.0-beta22</veidemann.api.version>
         <veidemann.commons.version>0.4.9</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.6.0</veidemann.rethinkdbadapter.version>
+        <veidemann.rethinkdbadapter.version>0.6.2</veidemann.rethinkdbadapter.version>
 
         <com.github.netflix.concurrency-limits.version>0.3.7</com.github.netflix.concurrency-limits.version>
         <log4j.version>2.13.3</log4j.version>

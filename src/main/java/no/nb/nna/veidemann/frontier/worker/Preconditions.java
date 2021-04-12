@@ -30,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.function.Consumer;
 
 /**
  *
@@ -42,7 +43,6 @@ public class Preconditions {
         OK,
         DENIED,
         RETRY,
-//        FINISHED
     }
 
     private Preconditions() {
@@ -125,18 +125,17 @@ public class Preconditions {
                 qUri.setIp(result.getAddress().getHostAddress());
                 qUri.setResolved(politeness);
 
+                IsAllowedFunc isAllowedFunc = new IsAllowedFunc(changedCrawlHostGroup, frontier, qUri, status, future);
+
                 // IP ok, check robots.txt
-                if (checkRobots(frontier, browserConfig.getBrowserConfig().getUserAgent(), crawlConfig, politeness, qUri)) {
-                    if (changedCrawlHostGroup) {
-                        frontier.getCrawlQueueManager().addToCrawlHostGroup(qUri.getQueuedUri(), false);
-                        future.set(PreconditionState.RETRY);
-                    } else {
-                        future.set(PreconditionState.OK);
-                    }
+                LOG.debug("Check robots for URI '{}'", qUri.getUri());
+                if (politeness.getPolitenessConfig().getRobotsPolicy() == RobotsPolicy.IGNORE_ROBOTS) {
+                    isAllowedFunc.accept(true);
                 } else {
-                    status.incrementDocumentsDenied(1L);
-                    DbUtil.writeLog(qUri);
-                    future.set(PreconditionState.DENIED);
+                    Futures.addCallback(frontier.getRobotsServiceClient()
+                                    .isAllowed(qUri.getQueuedUri(), browserConfig.getBrowserConfig().getUserAgent(), politeness, crawlConfig.getCrawlConfig().getCollectionRef()),
+                            new CheckRobotsCallback(isAllowedFunc),
+                            MoreExecutors.directExecutor());
                 }
             } catch (DbException e) {
                 future.setException(e);
@@ -168,17 +167,63 @@ public class Preconditions {
         }
     }
 
-    private static boolean checkRobots(Frontier frontier, String userAgent, ConfigObject crawlConfig, ConfigObject politeness,
-                                       QueuedUriWrapper qUri) throws DbException {
-        LOG.debug("Check robots.txt for URI '{}'", qUri.getUri());
-        if (politeness.getPolitenessConfig().getRobotsPolicy() != RobotsPolicy.IGNORE_ROBOTS
-                && !frontier.getRobotsServiceClient().isAllowed(qUri.getQueuedUri(), userAgent, politeness,
-                crawlConfig.getCrawlConfig().getCollectionRef())) {
-            LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
-            qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
-            return false;
+    static class CheckRobotsCallback implements FutureCallback<Boolean> {
+        private final IsAllowedFunc isAllowedFunc;
+
+        public CheckRobotsCallback(IsAllowedFunc isAllowedFunc) {
+            this.isAllowedFunc = isAllowedFunc;
         }
-        return true;
+
+        @Override
+        public void onSuccess(@Nullable Boolean result) {
+            isAllowedFunc.accept(result);
+        }
+
+        @Override
+        public void onFailure(Throwable t) {
+            LOG.info("Failed checking robots.txt for URI '{}', will allow harvest. Cause: {}",
+                    isAllowedFunc.qUri.getUri(),
+                    t.toString());
+
+            isAllowedFunc.accept(true);
+        }
     }
 
+    static class IsAllowedFunc implements Consumer<Boolean> {
+        private final boolean changedCrawlHostGroup;
+        private final Frontier frontier;
+        private final QueuedUriWrapper qUri;
+        private final StatusWrapper status;
+        private final SettableFuture<PreconditionState> future;
+
+        public IsAllowedFunc(boolean changedCrawlHostGroup, Frontier frontier, QueuedUriWrapper qUri, StatusWrapper status, SettableFuture<PreconditionState> future) {
+            this.changedCrawlHostGroup = changedCrawlHostGroup;
+            this.frontier = frontier;
+            this.qUri = qUri;
+            this.status = status;
+            this.future = future;
+        }
+
+        @Override
+        public void accept(Boolean isAllowed) {
+            try {
+                if (isAllowed) {
+                    if (changedCrawlHostGroup) {
+                        frontier.getCrawlQueueManager().addToCrawlHostGroup(qUri.getQueuedUri(), false);
+                        future.set(PreconditionState.RETRY);
+                    } else {
+                        future.set(PreconditionState.OK);
+                    }
+                } else {
+                    LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
+                    qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
+                    status.incrementDocumentsDenied(1L);
+                    DbUtil.writeLog(qUri);
+                    future.set(PreconditionState.DENIED);
+                }
+            } catch (DbException e) {
+                future.setException(e);
+            }
+        }
+    }
 }

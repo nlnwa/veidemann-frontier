@@ -23,12 +23,12 @@ import com.typesafe.config.ConfigFactory;
 import io.prometheus.client.exporter.HTTPServer;
 import io.prometheus.client.hotspot.DefaultExports;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
-import no.nb.nna.veidemann.commons.client.RobotsServiceClient;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.frontier.api.FrontierApiServer;
 import no.nb.nna.veidemann.frontier.settings.Settings;
 import no.nb.nna.veidemann.frontier.worker.DnsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
+import no.nb.nna.veidemann.frontier.worker.RobotsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,7 +95,7 @@ public class FrontierService {
              JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getRedisHost() + ':' + SETTINGS.getRedisPort()));
 
              RobotsServiceClient robotsServiceClient = new RobotsServiceClient(
-                     SETTINGS.getRobotsEvaluatorHost(), SETTINGS.getRobotsEvaluatorPort());
+                     SETTINGS.getRobotsEvaluatorHost(), SETTINGS.getRobotsEvaluatorPort(), asyncFunctionsExecutor);
 
              DnsServiceClient dnsServiceClient = new DnsServiceClient(
                      SETTINGS.getDnsResolverHost(), SETTINGS.getDnsResolverPort(), asyncFunctionsExecutor);
