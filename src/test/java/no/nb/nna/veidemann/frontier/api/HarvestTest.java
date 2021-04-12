@@ -107,7 +107,7 @@ public class HarvestTest {
             .withExposedPorts(28015);
 
     @Container
-    public static GenericContainer dbInitializer = new GenericContainer(DockerImageName.parse("norsknettarkiv/veidemann-db-initializer:0"))
+    public static GenericContainer dbInitializer = new GenericContainer(DockerImageName.parse("norsknettarkiv/veidemann-db-initializer:0.6.1"))
             .withNetwork(network)
             .dependsOn(rethinkDb)
             .withEnv("DB_HOST", "db")
