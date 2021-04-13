@@ -64,13 +64,14 @@ public class DnsServiceClient implements AutoCloseable {
         this.executor = executor;
     }
 
-    public ListenableFuture<InetSocketAddress> resolve(String host, int port, ConfigRef collectionRef) {
+    public ListenableFuture<InetSocketAddress> resolve(String host, int port, String executionId, ConfigRef collectionRef) {
         // Ensure host is never null
         String hostName = host == null ? "" : host;
         Objects.requireNonNull(collectionRef, "CollectionRef cannot be null");
         ResolveRequest request = ResolveRequest.newBuilder()
                 .setHost(hostName)
                 .setPort(port)
+                .setExecutionId(executionId)
                 .setCollectionRef(collectionRef)
                 .build();
 

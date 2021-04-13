@@ -81,7 +81,7 @@ public class Preconditions {
 
             LOG.debug("Resolve ip for URI '{}'", qUri.getUri());
             Futures.addCallback(frontier.getDnsServiceClient()
-                            .resolve(qUri.getHost(), qUri.getPort(), crawlConfig.getCrawlConfig().getCollectionRef()),
+                            .resolve(qUri.getHost(), qUri.getPort(), qUri.getExecutionId(), crawlConfig.getCrawlConfig().getCollectionRef()),
                     new ResolveDnsCallback(frontier, qUri, status, crawlConfig, future),
                     MoreExecutors.directExecutor());
             return future;
