@@ -52,11 +52,11 @@ public class ScopeServiceClient implements AutoCloseable {
 
     public ScopeServiceClient(final String host, final int port) {
         this(ManagedChannelBuilder.forAddress(host, port).usePlaintext());
-        LOG.info("ScopesCheckerService client pointing to " + host + ":" + port);
+        LOG.info("ScopeCheckerService client pointing to " + host + ":" + port);
     }
 
     public ScopeServiceClient(ManagedChannelBuilder<?> channelBuilder) {
-        LOG.debug("Setting up Frontier client");
+        LOG.debug("Setting up scope service client");
 //        TODO: Add tracing
 //        ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
 //        channel = channelBuilder.intercept(tracingInterceptor).build();

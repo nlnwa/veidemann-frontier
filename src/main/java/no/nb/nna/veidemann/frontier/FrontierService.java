@@ -29,6 +29,7 @@ import no.nb.nna.veidemann.frontier.settings.Settings;
 import no.nb.nna.veidemann.frontier.worker.DnsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import no.nb.nna.veidemann.frontier.worker.RobotsServiceClient;
+import no.nb.nna.veidemann.frontier.worker.LogServiceClient;
 import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,8 +107,11 @@ public class FrontierService {
              OutOfScopeHandlerClient outOfScopeHandlerClient = new OutOfScopeHandlerClient(
                      SETTINGS.getOutOfScopeHandlerHost(), SETTINGS.getOutOfScopeHandlerPort());
 
+             LogServiceClient logServiceClient = new LogServiceClient(
+                     SETTINGS.getLogServiceHost(), SETTINGS.getLogServicePort());
+
              Frontier frontier = new Frontier(SETTINGS, jedisPool, robotsServiceClient, dnsServiceClient, scopeServiceClient,
-                     outOfScopeHandlerClient);
+                     outOfScopeHandlerClient, logServiceClient);
         ) {
 
             FrontierApiServer apiServer = new FrontierApiServer(SETTINGS.getApiPort(), SETTINGS.getTerminationGracePeriodSeconds(), frontier);

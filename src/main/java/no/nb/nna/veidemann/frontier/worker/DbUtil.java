@@ -1,6 +1,6 @@
 package no.nb.nna.veidemann.frontier.worker;
 
-import no.nb.nna.veidemann.api.frontier.v1.CrawlLog;
+import no.nb.nna.veidemann.api.log.v1.CrawlLog;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.ProtoUtils;
@@ -24,11 +24,11 @@ public class DbUtil {
      *
      * @param qUri the uri with failed precondition
      */
-    public static void writeLog(QueuedUriWrapper qUri) throws DbException {
-        writeLog(qUri, qUri.getError().getCode());
+    public static void writeLog(Frontier frontier, QueuedUriWrapper qUri) {
+        writeLog(frontier, qUri, qUri.getError().getCode());
     }
 
-    public static void writeLog(QueuedUriWrapper qUri, int statusCode) throws DbException {
+    public static void writeLog(Frontier frontier, QueuedUriWrapper qUri, int statusCode) {
         if (statusCode == 0) {
             throw new IllegalArgumentException("Should never write log with status code 0, but did for " + qUri.getUri());
         }
@@ -45,6 +45,6 @@ public class DbUtil {
                 .setFetchTimeStamp(ProtoUtils.getNowTs())
                 .setCollectionFinalName(qUri.getCollectionName())
                 .build();
-        DbService.getInstance().getExecutionsAdapter().saveCrawlLog(crawlLog);
+        frontier.getLogServiceClient().writeCrawlLog(crawlLog);
     }
 }

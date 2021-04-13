@@ -44,6 +44,10 @@ public class Settings extends CommonSettings {
 
     private int outOfScopeHandlerPort;
 
+    private String logServiceHost;
+
+    private int logServicePort;
+
     private int prometheusPort;
 
     private int terminationGracePeriodSeconds;
@@ -172,5 +176,21 @@ public class Settings extends CommonSettings {
 
     public void setRedisPort(int redisPort) {
         this.redisPort = redisPort;
+    }
+
+    public String getLogServiceHost() {
+        return logServiceHost;
+    }
+
+    public void setLogServiceHost(String logServiceHost) {
+        this.logServiceHost = logServiceHost;
+    }
+
+    public int getLogServicePort() {
+        return logServicePort;
+    }
+
+    public void setLogServicePort(int logServicePort) {
+        this.logServicePort = logServicePort;
     }
 }

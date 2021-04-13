@@ -81,6 +81,8 @@ public class Frontier implements AutoCloseable {
 
     private final OutOfScopeHandlerClient outOfScopeHandlerClient;
 
+    private final LogServiceClient logServiceClient;
+
     private final CrawlQueueManager crawlQueueManager;
 
     private final LoadingCache<ConfigRef, ConfigObject> configCache;
@@ -99,13 +101,15 @@ public class Frontier implements AutoCloseable {
     static final RethinkDB r = RethinkDB.r;
 
     public Frontier(Settings settings, JedisPool jedisPool, RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient,
-                    ScopeServiceClient scopeServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient) {
+                    ScopeServiceClient scopeServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient,
+                    LogServiceClient logServiceClient) {
         this.settings = settings;
         this.jedisPool = jedisPool;
         this.robotsServiceClient = robotsServiceClient;
         this.dnsServiceClient = dnsServiceClient;
         this.scopeServiceClient = scopeServiceClient;
         this.outOfScopeHandlerClient = outOfScopeHandlerClient;
+        this.logServiceClient = logServiceClient;
         conn = ((RethinkDbInitializer) DbService.getInstance().getDbInitializer()).getDbConnection();
         this.crawlQueueManager = new CrawlQueueManager(this, conn, jedisPool);
 
@@ -254,6 +258,10 @@ public class Frontier implements AutoCloseable {
 
     public OutOfScopeHandlerClient getOutOfScopeHandlerClient() {
         return outOfScopeHandlerClient;
+    }
+
+    public LogServiceClient getLogServiceClient() {
+        return logServiceClient;
     }
 
     public ScriptParameterResolver getScriptParameterResolver() {

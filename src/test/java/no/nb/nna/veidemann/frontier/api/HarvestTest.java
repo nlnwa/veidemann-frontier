@@ -10,7 +10,6 @@ import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus.State;
 import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
-import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.settings.CommonSettings;
 import no.nb.nna.veidemann.db.RethinkDbConnection;
@@ -18,19 +17,9 @@ import no.nb.nna.veidemann.db.Tables;
 import no.nb.nna.veidemann.db.initializer.RethinkDbInitializer;
 import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
 import no.nb.nna.veidemann.frontier.settings.Settings;
-import no.nb.nna.veidemann.frontier.testutil.DnsResolverMock;
-import no.nb.nna.veidemann.frontier.testutil.HarvesterMock;
-import no.nb.nna.veidemann.frontier.testutil.OutOfScopeHandlerMock;
-import no.nb.nna.veidemann.frontier.testutil.RedisData;
-import no.nb.nna.veidemann.frontier.testutil.RethinkDbData;
-import no.nb.nna.veidemann.frontier.testutil.RobotsEvaluatorMock;
-import no.nb.nna.veidemann.frontier.testutil.ScopeCheckerServiceMock;
-import no.nb.nna.veidemann.frontier.testutil.SetupCrawl;
-import no.nb.nna.veidemann.frontier.testutil.SkipUntilFilter;
-import no.nb.nna.veidemann.frontier.worker.DnsServiceClient;
-import no.nb.nna.veidemann.frontier.worker.Frontier;
-import no.nb.nna.veidemann.frontier.worker.RobotsServiceClient;
-import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
+import no.nb.nna.veidemann.frontier.testutil.*;
+import no.nb.nna.veidemann.frontier.worker.*;
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -66,6 +55,7 @@ import static org.awaitility.Awaitility.await;
 @Tag("integration")
 @Tag("redis")
 @Tag("rethinkDb")
+@Tag("scylla")
 public class HarvestTest {
     private static final Logger LOG = LoggerFactory.getLogger(HarvestTest.class);
 
@@ -80,10 +70,12 @@ public class HarvestTest {
     OutOfScopeHandlerMock outOfScopeHandlerMock;
     ScopeCheckerServiceMock scopeCheckerServiceMock;
     HarvesterMock harvesterMock;
+    LogServiceMock logServiceMock;
     RobotsServiceClient robotsServiceClient;
     DnsServiceClient dnsServiceClient;
     ScopeServiceClient scopeServiceClient;
     OutOfScopeHandlerClient outOfScopeHandlerClient;
+    LogServiceClient logServiceClient;
 
     JedisPool jedisPool;
     RedisData redisData;
@@ -96,7 +88,8 @@ public class HarvestTest {
     private static Network network = Network.newNetwork();
 
     @Container
-    public static GenericContainer redis = new GenericContainer(DockerImageName.parse("redis:5.0.7-alpine"))
+    public static GenericContainer redis = new GenericContainer(DockerImageName.parse("redis:6-alpine"))
+            .withNetwork(network)
             .withExposedPorts(6379)
             .withLogConsumer(new SkipUntilFilter("Ready to accept connections", new Slf4jLogConsumer(LoggerFactory.getLogger("REDIS"))));
 
@@ -128,7 +121,7 @@ public class HarvestTest {
     }
 
     @BeforeEach
-    public void setup() throws DbQueryException, DbConnectionException, IOException {
+    public void setup() throws DbConnectionException, IOException {
         Settings settings = new Settings();
         settings.setDnsResolverHost(getStringProperty("dnsresolver.host", "localhost"));
         settings.setDnsResolverPort(getIntProperty("dnsresolver.port", 9500));
@@ -138,6 +131,8 @@ public class HarvestTest {
         settings.setOutOfScopeHandlerPort(getIntProperty("ooshandler.port", 9502));
         settings.setScopeserviceHost(getStringProperty("scopeChecker.host", "localhost"));
         settings.setScopeservicePort(getIntProperty("scopeChecker.port", 9503));
+        settings.setLogServiceHost(getStringProperty("logService.host", "localhost"));
+        settings.setLogServicePort(getIntProperty("logService.port", 9505));
         settings.setDbHost(rethinkDb.getHost());
         settings.setDbPort(rethinkDb.getFirstMappedPort());
         settings.setDbName("veidemann");
@@ -157,22 +152,23 @@ public class HarvestTest {
         outOfScopeHandlerMock = new OutOfScopeHandlerMock(settings.getOutOfScopeHandlerPort()).start();
         scopeCheckerServiceMock = new ScopeCheckerServiceMock(settings.getScopeservicePort()).start();
         harvesterMock = new HarvesterMock(frontierAsyncStub).start();
-
+        logServiceMock = new LogServiceMock(settings.getLogServicePort()).start();
         robotsServiceClient = new RobotsServiceClient(settings.getRobotsEvaluatorHost(), settings.getRobotsEvaluatorPort(), asyncFunctionsExecutor);
         dnsServiceClient = new DnsServiceClient(settings.getDnsResolverHost(), settings.getDnsResolverPort(), asyncFunctionsExecutor);
         scopeServiceClient = new ScopeServiceClient(settings.getScopeserviceHost(), settings.getScopeservicePort());
         outOfScopeHandlerClient = new OutOfScopeHandlerClient(settings.getOutOfScopeHandlerHost(), settings.getOutOfScopeHandlerPort());
-
+        logServiceClient = new LogServiceClient(settings.getLogServiceHost(), settings.getLogServicePort());
 
         if (!DbService.isConfigured()) {
             CommonSettings dbSettings = new CommonSettings()
                     .withDbHost(rethinkDb.getHost())
-                    .withDbPort(rethinkDb.getFirstMappedPort())
+                    .withDbPort(rethinkDb.getMappedPort(28015))
                     .withDbName("veidemann")
                     .withDbUser("admin")
                     .withDbPassword("");
             DbService.configure(dbSettings);
         }
+
         conn = ((RethinkDbInitializer) DbService.getInstance().getDbInitializer()).getDbConnection();
 
         JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
@@ -182,7 +178,7 @@ public class HarvestTest {
         rethinkDbData = new RethinkDbData(conn);
 
         frontier = new Frontier(settings, jedisPool, robotsServiceClient, dnsServiceClient, scopeServiceClient,
-                outOfScopeHandlerClient);
+                outOfScopeHandlerClient, logServiceClient);
         apiServer = new FrontierApiServer(settings.getApiPort(), settings.getTerminationGracePeriodSeconds(), frontier);
 
         apiServer.start();
@@ -195,7 +191,9 @@ public class HarvestTest {
         dnsServiceClient.close();
         scopeServiceClient.close();
         outOfScopeHandlerClient.close();
+        logServiceClient.close();
         dnsResolverMock.close();
+        logServiceMock.close();
         robotsEvaluatorMock.close();
         outOfScopeHandlerMock.close();
         scopeCheckerServiceMock.close();
@@ -208,8 +206,6 @@ public class HarvestTest {
         conn.exec(r.table(Tables.JOB_EXECUTIONS.name).delete());
         conn.exec(r.table(Tables.SEEDS.name).delete());
         conn.exec(r.table(Tables.CRAWL_ENTITIES.name).delete());
-        conn.exec(r.table(Tables.CRAWL_LOG.name).delete());
-        conn.exec(r.table(Tables.PAGE_LOG.name).delete());
 
         jedisPool.getResource().flushAll();
         jedisPool.close();
@@ -249,8 +245,9 @@ public class HarvestTest {
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
+
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -270,6 +267,7 @@ public class HarvestTest {
         int maxHopsFromSeed = 2;
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
+        // logServiceMock.withExpectedNrOfWrites(2);
         harvesterMock
                 .withExceptionForAllUrlRequests("http://stress-000000.com")
                 .withExceptionForUrlRequests("http://stress-000001.com", 1, 1)
@@ -281,7 +279,6 @@ public class HarvestTest {
         Instant testStart = Instant.now();
 
         JobExecutionStatus jes = c.runCrawl(frontierStub);
-
 
         await().pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).atMost(20, TimeUnit.SECONDS)
                 .until(() -> {
@@ -300,10 +297,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(2);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(2);
+                .hasQueueTotalCount(0);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -352,10 +350,12 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(1);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(1);
+                .hasQueueTotalCount(0);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -403,10 +403,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -454,10 +455,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -505,10 +507,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(1);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(1);
+                .hasQueueTotalCount(0);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -556,10 +559,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(1);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(1);
+                .hasQueueTotalCount(0);
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -611,10 +615,12 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(3);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(3);
+                .hasQueueTotalCount(0);
+
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(jes.getId(), j -> {
             assertThat(j)
@@ -703,10 +709,12 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
-        rethinkDbData.getCrawlLogs().forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
+        logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
+        // TODO .crawlLogs().hasNumberOfElements(0);
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
+
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(jes.getId(), j -> {
             assertThat(j)
@@ -792,8 +800,8 @@ public class HarvestTest {
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
+        // TODO .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
                 .hasEntrySatisfying(crawlExecutionId, s -> {
@@ -907,9 +915,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
+
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
                 // Check first seed
@@ -1046,9 +1056,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
+
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount);
         assertThat(rethinkDbData)
@@ -1121,9 +1133,11 @@ public class HarvestTest {
         System.out.println(String.format("Test time: %02d:%02d:%02d.%d",
                 testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
 
+        Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
+
         assertThat(rethinkDbData)
-                .hasQueueTotalCount(0)
-                .crawlLogs().hasNumberOfElements(0);
+                .hasQueueTotalCount(0);
+
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(20);
         assertThat(rethinkDbData)

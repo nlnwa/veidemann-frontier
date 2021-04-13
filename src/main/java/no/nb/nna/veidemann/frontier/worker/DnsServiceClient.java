@@ -77,6 +77,7 @@ public class DnsServiceClient implements AutoCloseable {
         ListenableFuture<ResolveReply> reply = GrpcUtil.forkedCall(() -> futureStub.resolve(request));
 
         reply = Futures.catchingAsync(reply, Exception.class, e -> {
+
             if (e instanceof StatusRuntimeException) {
                 StatusRuntimeException ex = (StatusRuntimeException) e;
                 if (ex.getStatus().getCode() == Status.UNAVAILABLE.getCode()) {
