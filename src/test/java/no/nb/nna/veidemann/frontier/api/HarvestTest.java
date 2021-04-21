@@ -55,7 +55,6 @@ import static org.awaitility.Awaitility.await;
 @Tag("integration")
 @Tag("redis")
 @Tag("rethinkDb")
-@Tag("scylla")
 public class HarvestTest {
     private static final Logger LOG = LoggerFactory.getLogger(HarvestTest.class);
 
@@ -712,7 +711,6 @@ public class HarvestTest {
         logServiceMock.crawlLogs.forEach(cl -> System.out.println(String.format("Status: %3d %s %s", cl.getStatusCode(), cl.getRequestedUri(), cl.getError())));
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
-        // TODO .crawlLogs().hasNumberOfElements(0);
         Assertions.assertThat(logServiceMock.crawlLogs.size()).isEqualTo(0);
 
         assertThat(rethinkDbData)
@@ -801,7 +799,6 @@ public class HarvestTest {
 
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
-        // TODO .crawlLogs().hasNumberOfElements(0);
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
                 .hasEntrySatisfying(crawlExecutionId, s -> {

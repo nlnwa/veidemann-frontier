@@ -1,8 +1,6 @@
 package no.nb.nna.veidemann.frontier.worker;
 
 import no.nb.nna.veidemann.api.log.v1.CrawlLog;
-import no.nb.nna.veidemann.commons.db.DbException;
-import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.ProtoUtils;
 
 /**
