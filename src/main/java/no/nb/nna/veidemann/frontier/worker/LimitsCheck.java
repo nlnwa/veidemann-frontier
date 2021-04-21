@@ -18,7 +18,6 @@ package no.nb.nna.veidemann.frontier.worker;
 import com.google.protobuf.util.Timestamps;
 import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
-import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.db.ProtoUtils;
 import org.slf4j.Logger;
@@ -43,9 +42,7 @@ public class LimitsCheck {
      * @param qUri     the URI to check
      * @return true if crawl should be stopped
      */
-    public static boolean isLimitReached(Frontier frontier, CrawlLimitsConfig limits, StatusWrapper status,
-                                         QueuedUriWrapper qUri) throws DbException {
-
+    public static boolean isLimitReached(CrawlLimitsConfig limits, StatusWrapper status) throws DbException {
         if (limits.getMaxBytes() > 0 && status.getBytesCrawled() > limits.getMaxBytes()) {
             switch (status.getState()) {
                 case CREATED:
@@ -81,7 +78,6 @@ public class LimitsCheck {
             qUri.clearError();
             return false;
         } else {
-            DbUtil.writeLog(qUri, ExtraStatusCodes.RETRY_LIMIT_REACHED.getCode());
             return true;
         }
     }

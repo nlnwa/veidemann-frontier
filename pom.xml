@@ -26,9 +26,9 @@
         <maven.compiler.target>11</maven.compiler.target>
         <docker.tag>${project.version}</docker.tag>
 
-        <veidemann.api.version>1.0.0-beta22</veidemann.api.version>
-        <veidemann.commons.version>0.4.9</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.6.2</veidemann.rethinkdbadapter.version>
+        <veidemann.api.version>1.0.0-beta23</veidemann.api.version>
+        <veidemann.commons.version>0.5.0</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.7.0</veidemann.rethinkdbadapter.version>
 
         <com.github.netflix.concurrency-limits.version>0.3.7</com.github.netflix.concurrency-limits.version>
         <log4j.version>2.13.3</log4j.version>
@@ -38,7 +38,7 @@
 
         <!--Docker container versions for integration tests-->
         <rethinkdb.version>2.3.6</rethinkdb.version>
-        <redis.version>5.0.7-alpine</redis.version>
+        <redis.version>6-alpine</redis.version>
 
         <!-- Docker auth credentials -->
         <!--suppress UnresolvedMavenProperty -->
@@ -293,6 +293,7 @@
                                 <portName>scopeChecker.port</portName>
                                 <portName>redis.port</portName>
                                 <portName>frontier.port</portName>
+                                <portName>logService.port</portName>
                             </portNames>
                         </configuration>
                     </execution>
@@ -320,6 +321,10 @@
                         <scopeChecker.host>localhost</scopeChecker.host>
                         <!--suppress UnresolvedMavenProperty -->
                         <scopeChecker.port>${scopeChecker.port}</scopeChecker.port>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <logService.host>localhost</logService.host>
+                        <!--suppress UnresolvedMavenProperty -->
+                        <logService.port>${logService.port}</logService.port>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

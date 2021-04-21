@@ -57,7 +57,7 @@ public class Preconditions {
             return Futures.immediateFuture(PreconditionState.DENIED);
         }
 
-        if (isLimitReached(frontier, status, qUri)) {
+        if (isLimitReached(status)) {
             return Futures.immediateFuture(PreconditionState.DENIED);
         }
 
@@ -69,7 +69,7 @@ public class Preconditions {
                     // Do not log BLOCKED and TOO_MANY_HOPS
                     break;
                 default:
-                    DbUtil.writeLog(qUri);
+                    DbUtil.writeLog(frontier, qUri);
             }
             status.incrementDocumentsOutOfScope();
             frontier.getOutOfScopeHandlerClient().submitUri(qUri.getQueuedUri());
@@ -81,7 +81,7 @@ public class Preconditions {
 
             LOG.debug("Resolve ip for URI '{}'", qUri.getUri());
             Futures.addCallback(frontier.getDnsServiceClient()
-                            .resolve(qUri.getHost(), qUri.getPort(), crawlConfig.getCrawlConfig().getCollectionRef()),
+                            .resolve(qUri.getHost(), qUri.getPort(), qUri.getExecutionId(), crawlConfig.getCrawlConfig().getCollectionRef()),
                     new ResolveDnsCallback(frontier, qUri, status, crawlConfig, future),
                     MoreExecutors.directExecutor());
             return future;
@@ -91,9 +91,9 @@ public class Preconditions {
 
     }
 
-    static boolean isLimitReached(Frontier frontier, StatusWrapper status, QueuedUriWrapper qUri) throws DbException {
+    static boolean isLimitReached(StatusWrapper status) throws DbException {
         CrawlLimitsConfig limits = status.getCrawlJobConfig().getCrawlJob().getLimits();
-        return LimitsCheck.isLimitReached(frontier, limits, status, qUri);
+        return LimitsCheck.isLimitReached(limits, status);
     }
 
     static class ResolveDnsCallback implements FutureCallback<InetSocketAddress> {
@@ -218,7 +218,7 @@ public class Preconditions {
                     LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
                     qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
                     status.incrementDocumentsDenied(1L);
-                    DbUtil.writeLog(qUri);
+                    DbUtil.writeLog(frontier, qUri);
                     future.set(PreconditionState.DENIED);
                 }
             } catch (DbException e) {

@@ -2,9 +2,7 @@ package no.nb.nna.veidemann.frontier.testutil;
 
 import com.rethinkdb.net.Cursor;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
-import no.nb.nna.veidemann.api.frontier.v1.CrawlLog;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
-import no.nb.nna.veidemann.api.frontier.v1.PageLog;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
@@ -20,7 +18,6 @@ import static com.rethinkdb.RethinkDB.r;
 
 public class RethinkDbData {
     final RethinkDbConnection conn;
-    List<PageLog> pageLogList;
 
     public RethinkDbData(RethinkDbConnection conn) {
         this.conn = conn;
@@ -47,22 +44,6 @@ public class RethinkDbData {
             return cursor.toList().stream()
                     .map(v -> ProtoUtils.rethinkToProto(v, JobExecutionStatus.class))
                     .collect(Collectors.toMap(o -> o.getId(), o -> o));
-        }
-    }
-
-    public List<CrawlLog> getCrawlLogs() throws DbQueryException, DbConnectionException {
-        try (Cursor<Map<String, Object>> cursor = conn.exec(r.table(Tables.CRAWL_LOG.name))) {
-            return (List<CrawlLog>) cursor.toList().stream()
-                    .map(v -> ProtoUtils.rethinkToProto(v, CrawlLog.class))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    public List<PageLog> getPageLogs() throws DbQueryException, DbConnectionException {
-        try (Cursor<Map<String, Object>> cursor = conn.exec(r.table(Tables.PAGE_LOG.name))) {
-            return (List<PageLog>) cursor.toList().stream()
-                    .map(v -> ProtoUtils.rethinkToProto(v, PageLog.class))
-                    .collect(Collectors.toList());
         }
     }
 }

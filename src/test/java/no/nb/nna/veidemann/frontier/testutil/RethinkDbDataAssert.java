@@ -3,7 +3,6 @@ package no.nb.nna.veidemann.frontier.testutil;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
-import no.nb.nna.veidemann.api.frontier.v1.CrawlLog;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
@@ -34,30 +33,12 @@ public class RethinkDbDataAssert extends AbstractAssert<RethinkDbDataAssert, Ret
         return this;
     }
 
-    public CrawlLogsAssert crawlLogs() throws DbQueryException, DbConnectionException {
-        return new CrawlLogsAssert(actual.getCrawlLogs());
-    }
-
     public MapAssert<String, CrawlExecutionStatus> crawlExecutionStatuses() throws DbException {
         return new MapAssert<>(actual.getCrawlExecutionStatuses());
     }
 
     public MapAssert<String, JobExecutionStatus> jobExecutionStatuses() throws DbException {
         return new MapAssert<>(actual.getJobExecutionStatuses());
-    }
-
-    public static class CrawlLogsAssert extends AbstractAssert<CrawlLogsAssert, List<CrawlLog>> {
-        public CrawlLogsAssert(List<CrawlLog> actual) {
-            super(actual, CrawlLogsAssert.class);
-        }
-
-        public CrawlLogsAssert hasNumberOfElements(int expected) {
-            if (actual.size() != expected) {
-                failWithMessage("Expected number of CrawlLogs to be <%d>, but was <%d>",
-                        expected, actual.size());
-            }
-            return this;
-        }
     }
 
     public static class DelayQueueAssert extends AbstractAssert<DelayQueueAssert, List<Tuple>> {
