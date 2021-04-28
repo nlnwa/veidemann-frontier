@@ -16,24 +16,27 @@
 
 package no.nb.nna.veidemann.frontier.testutil;
 
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
-import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc.FrontierStub;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
+import no.nb.nna.veidemann.frontier.settings.Settings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HarvesterMock implements AutoCloseable {
     private static final int NUM_HARVESTERS = 200;
@@ -46,24 +49,27 @@ public class HarvesterMock implements AutoCloseable {
     int linksPerLevel = 0;
     int outOfScopeLinksPerLevel = 0;
     long pageFetchTimeMs = 10;
-    long longPageFetchTimeMs = 3000;
+    long longPageFetchTimeMs = 5000;
 
     private final static PageHarvest NEW_PAGE_REQUEST = PageHarvest.newBuilder().setRequestNextPage(true).build();
+    private final ManagedChannel frontierChannel;
     private final FrontierGrpc.FrontierStub frontierAsyncStub;
-    private final ExecutorService exe;
-    private boolean shouldRun = true;
+    private ExecutorService exe;
+    private AtomicBoolean shouldRun = new AtomicBoolean(true);
 
-    public HarvesterMock(FrontierStub frontierAsyncStub) {
-        this.frontierAsyncStub = frontierAsyncStub;
-        exe = Executors.newFixedThreadPool(NUM_HARVESTERS);
+    public HarvesterMock(Settings settings) {
+        frontierChannel = ManagedChannelBuilder.forAddress("localhost", settings.getApiPort()).usePlaintext().build();
+        frontierAsyncStub = FrontierGrpc.newStub(frontierChannel).withWaitForReady();
     }
 
     public HarvesterMock start() {
+        exe = Executors.newFixedThreadPool(NUM_HARVESTERS);
         for (int i = 0; i < NUM_HARVESTERS; i++) {
             exe.submit((Callable<Void>) () -> {
                 Harvester h = new Harvester();
-                while (shouldRun) {
+                while (shouldRun.get()) {
                     h.harvest();
+                    Thread.sleep(50);
                 }
                 return null;
             });
@@ -72,9 +78,20 @@ public class HarvesterMock implements AutoCloseable {
     }
 
     public void close() throws InterruptedException {
-        shouldRun = false;
+        shouldRun.set(false);
+        frontierChannel.shutdownNow().awaitTermination(15, TimeUnit.SECONDS);
         exe.shutdownNow();
-        exe.awaitTermination(5, TimeUnit.SECONDS);
+        exe.awaitTermination(15, TimeUnit.SECONDS);
+    }
+
+    public HarvesterMock withFetchTime(long millis) {
+        this.pageFetchTimeMs = millis;
+        return this;
+    }
+
+    public HarvesterMock withLongFetchTime(long millis) {
+        this.longPageFetchTimeMs = millis;
+        return this;
     }
 
     public HarvesterMock withExceptionForAllUrlRequests(String url) {
@@ -118,14 +135,15 @@ public class HarvesterMock implements AutoCloseable {
     }
 
     private class Harvester {
+        ClientCallStreamObserver<PageHarvest> requestObserver;
+        CountDownLatch lock;
+
         public void harvest() throws InterruptedException {
-            CountDownLatch lock = new CountDownLatch(1);
+            lock = new CountDownLatch(1);
 
             ResponseObserver responseObserver = new ResponseObserver(lock);
-
-            StreamObserver<PageHarvest> requestObserver = frontierAsyncStub
+            requestObserver = (ClientCallStreamObserver<PageHarvest>) frontierAsyncStub
                     .getNextPage(responseObserver);
-            responseObserver.setRequestObserver(requestObserver);
 
             try {
                 requestObserver.onNext(NEW_PAGE_REQUEST);
@@ -134,21 +152,20 @@ public class HarvesterMock implements AutoCloseable {
                 requestObserver.onError(e);
             }
             lock.await();
+            requestObserver = null;
+            lock = null;
+        }
+
+        public void close() {
+            requestObserver.onCompleted();
         }
 
         private class ResponseObserver implements StreamObserver<PageHarvestSpec> {
             final CountDownLatch lock;
-            StreamObserver<PageHarvest> requestObserver;
 
             public ResponseObserver(CountDownLatch lock) {
                 this.lock = lock;
             }
-
-            public void setRequestObserver(StreamObserver<PageHarvest> requestObserver) {
-                this.requestObserver = requestObserver;
-            }
-
-            Random rnd = new Random();
 
             @Override
             public void onNext(PageHarvestSpec pageHarvestSpec) {

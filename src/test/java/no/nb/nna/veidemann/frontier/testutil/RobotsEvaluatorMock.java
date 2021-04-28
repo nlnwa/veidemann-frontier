@@ -68,13 +68,13 @@ public class RobotsEvaluatorMock implements AutoCloseable {
         public void isAllowed(IsAllowedRequest request, StreamObserver<IsAllowedReply> responseObserver) {
             // Simulate bug in RobotsEvaluator when when checking uri
             if (exceptionForUrl.contains(request.getUri())) {
-                System.out.println("RobotsEvaluator failed for " + request.getUri());
+                LOG.info("RobotsEvaluator failed for {}", request.getUri());
                 throw new RuntimeException("Simulated bug in RobotsEvaluator");
             }
 
             // Simulate denial for url
             if (fetchDenialForUrl.contains(request.getUri())) {
-                System.out.println("Harvest of " + request.getUri() + " denied by RobotsEvaluator");
+                LOG.info("Harvest of {} denied by RobotsEvaluator", request.getUri());
                 responseObserver.onNext(IsAllowedReply.newBuilder().setIsAllowed(false).build());
             } else {
                 responseObserver.onNext(IsAllowedReply.newBuilder().setIsAllowed(true).build());

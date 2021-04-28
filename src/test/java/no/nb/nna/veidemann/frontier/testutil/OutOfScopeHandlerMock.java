@@ -51,7 +51,6 @@ public class OutOfScopeHandlerMock implements AutoCloseable {
     public class OosHandler extends OosHandlerGrpc.OosHandlerImplBase {
         @Override
         public void submitUri(SubmitUriRequest request, StreamObserver<Empty> responseObserver) {
-//            System.out.println("OOS " + request.getUri().getUri());
             responseObserver.onNext(Empty.getDefaultInstance());
             responseObserver.onCompleted();
         }
