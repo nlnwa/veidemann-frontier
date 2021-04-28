@@ -20,11 +20,13 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.rethinkdb.RethinkDB;
 import com.rethinkdb.gen.ast.Insert;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.Tracer;
+import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
@@ -32,8 +34,8 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
+import no.nb.nna.veidemann.api.log.v1.CrawlLog;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
-import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
@@ -55,13 +57,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -70,6 +70,8 @@ import java.util.concurrent.TimeUnit;
 public class Frontier implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(Frontier.class);
+
+    private final Tracer tracer;
 
     private final Settings settings;
 
@@ -89,20 +91,42 @@ public class Frontier implements AutoCloseable {
 
     private final ScriptParameterResolver scriptParameterResolver;
 
-    private final ExecutorService preFetchThreadPool =
-            new ThreadPoolExecutor(2, 64, 5, TimeUnit.SECONDS, new SynchronousQueue<>(),
-                    new ThreadFactoryBuilder().setNameFormat("prefetch-%d").build(), new CallerRunsPolicy());
-    final ExecutorService postFetchThreadPool =
-            new ThreadPoolExecutor(8, 64, 5, TimeUnit.SECONDS, new SynchronousQueue<>(),
-                    new ThreadFactoryBuilder().setNameFormat("postfetch-%d").build(), new CallerRunsPolicy());
+    private final ForkJoinPool postFetchThreadPool;
+
+    private final ForkJoinPool asyncFunctionsThreadPool;
 
     private final JedisPool jedisPool;
     final RethinkDbConnection conn;
     static final RethinkDB r = RethinkDB.r;
 
-    public Frontier(Settings settings, JedisPool jedisPool, RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient,
+    public Frontier(Tracer tracer, Settings settings, JedisPool jedisPool, RobotsServiceClient robotsServiceClient, DnsServiceClient dnsServiceClient,
                     ScopeServiceClient scopeServiceClient, OutOfScopeHandlerClient outOfScopeHandlerClient,
                     LogServiceClient logServiceClient) {
+        this.tracer = tracer;
+        GlobalTracer.registerIfAbsent(tracer);
+
+        postFetchThreadPool = new ForkJoinPool(
+                64,
+                ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+                null,
+                false,
+                64,
+                1024,
+                2,
+                null,
+                60, TimeUnit.SECONDS);
+
+        asyncFunctionsThreadPool = new ForkJoinPool(
+                32,
+                ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+                null,
+                true,
+                32,
+                1024,
+                1,
+                null,
+                60, TimeUnit.SECONDS);
+
         this.settings = settings;
         this.jedisPool = jedisPool;
         this.robotsServiceClient = robotsServiceClient;
@@ -129,28 +153,27 @@ public class Frontier implements AutoCloseable {
         scriptParameterResolver = new ScriptParameterResolver(this);
     }
 
-    public ListenableFuture<CrawlExecutionStatus> scheduleSeed(CrawlSeedRequest request) {
-        return Futures.submit(() -> {
+    public CrawlExecutionStatus scheduleSeed(CrawlSeedRequest request) throws DbException {
+        Tracer tracer = getTracer();
+        Span span = tracer.activeSpan();
 
-            // Create crawl execution
-            StatusWrapper status = StatusWrapper.getStatusWrapper(this,
-                    createCrawlExecutionStatus(
-                            request.getJob().getId(),
-                            request.getJobExecutionId(),
-                            request.getSeed().getId()));
+        // Create crawl execution
+        StatusWrapper status = StatusWrapper.getStatusWrapper(this,
+                createCrawlExecutionStatus(
+                        request.getJob().getId(),
+                        request.getJobExecutionId(),
+                        request.getSeed().getId()));
 
-            LOG.debug("New crawl execution: " + status.getId());
+        LOG.debug("New crawl execution: " + status.getId());
 
-            preFetchThreadPool.submit(() -> {
-                try {
-                    preprocessAndQueueSeed(request, status);
-                } catch (DbException e) {
-                    e.printStackTrace();
-                }
-            });
-            return status.getCrawlExecutionStatus();
-
-        }, preFetchThreadPool);
+        getAsyncFunctionsThreadPool().submit(() -> {
+            try (Scope scope = tracer.scopeManager().activate(span)) {
+                preprocessAndQueueSeed(request, status);
+            } catch (DbException e) {
+                e.printStackTrace();
+            }
+        });
+        return status.getCrawlExecutionStatus();
     }
 
     public void preprocessAndQueueSeed(CrawlSeedRequest request, StatusWrapper status) throws DbException {
@@ -225,7 +248,7 @@ public class Frontier implements AutoCloseable {
                     e.printStackTrace();
                 }
                 return null;
-            }, MoreExecutors.directExecutor());
+            }, getAsyncFunctionsThreadPool());
         } catch (URISyntaxException ex) {
             status.incrementDocumentsFailed()
                     .setEndState(CrawlExecutionStatus.State.FAILED)
@@ -258,10 +281,6 @@ public class Frontier implements AutoCloseable {
 
     public OutOfScopeHandlerClient getOutOfScopeHandlerClient() {
         return outOfScopeHandlerClient;
-    }
-
-    public LogServiceClient getLogServiceClient() {
-        return logServiceClient;
     }
 
     public ScriptParameterResolver getScriptParameterResolver() {
@@ -311,15 +330,60 @@ public class Frontier implements AutoCloseable {
         }
     }
 
+    public Tracer getTracer() {
+        return tracer;
+    }
+
+    public ForkJoinPool getPostFetchThreadPool() {
+        return postFetchThreadPool;
+    }
+
+    public ForkJoinPool getAsyncFunctionsThreadPool() {
+        return asyncFunctionsThreadPool;
+    }
+
+    /**
+     * Write crawl log entry for uris failing preconditions.
+     * <p>
+     * Normally the crawl log is written by the harvester, but when preconditions fail a fetch will never be tried and
+     * the crawl log must be written by the frontier.
+     *
+     * @param qUri the uri with failed precondition
+     */
+    public void writeLog(Frontier frontier, QueuedUriWrapper qUri) {
+        writeLog(frontier, qUri, qUri.getError().getCode());
+    }
+
+    public void writeLog(Frontier frontier, QueuedUriWrapper qUri, int statusCode) {
+        if (statusCode == 0) {
+            throw new IllegalArgumentException("Should never write log with status code 0, but did for " + qUri.getUri());
+        }
+        CrawlLog crawlLog = CrawlLog.newBuilder()
+                .setWarcId(UUID.randomUUID().toString())
+                .setRequestedUri(qUri.getUri())
+                .setJobExecutionId(qUri.getJobExecutionId())
+                .setExecutionId(qUri.getExecutionId())
+                .setDiscoveryPath(qUri.getDiscoveryPath())
+                .setReferrer(qUri.getReferrer())
+                .setRecordType("response")
+                .setStatusCode(statusCode)
+                .setError(qUri.getError())
+                .setRetries(qUri.getRetries())
+                .setFetchTimeStamp(ProtoUtils.getNowTs())
+                .setCollectionFinalName(qUri.getCollectionName())
+                .build();
+        logServiceClient.writeCrawlLog(crawlLog);
+    }
+
     @Override
     public void close() {
         System.out.println("Shutting down Frontier");
-        Future preFetchFuture = shutdownPool("preFetchPool", preFetchThreadPool, 60, TimeUnit.SECONDS);
         Future postFetchFuture = shutdownPool("postFetchPool", postFetchThreadPool, 60, TimeUnit.SECONDS);
+        Future asyncFunctionsFuture = shutdownPool("asyncFunctionsPool", asyncFunctionsThreadPool, 60, TimeUnit.SECONDS);
         try {
             crawlQueueManager.close();
-            preFetchFuture.get();
             postFetchFuture.get();
+            asyncFunctionsFuture.get();
         } catch (InterruptedException e) {
             e.printStackTrace();
             // Preserve interrupt status

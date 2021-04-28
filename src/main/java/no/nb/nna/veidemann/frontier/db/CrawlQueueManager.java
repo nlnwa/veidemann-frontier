@@ -4,6 +4,9 @@ import com.google.common.hash.Hashing;
 import com.google.common.primitives.Longs;
 import com.google.protobuf.Timestamp;
 import com.rethinkdb.RethinkDB;
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.tag.Tags;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChangeOrBuilder;
@@ -122,7 +125,7 @@ public class CrawlQueueManager implements AutoCloseable {
         jobExecutionUpdateScript = new JobExecutionUpdateScript();
 
         this.crawlQueueWorker = new CrawlQueueWorker(frontier, conn, jedisPool);
-        this.nextFetchSupplier = new TimeoutSupplier<>(8, 15, TimeUnit.SECONDS, 4,
+        this.nextFetchSupplier = new TimeoutSupplier<>(64, 15, TimeUnit.SECONDS, 6,
                 () -> getPrefetchHandler(), p -> releaseCrawlHostGroup(p.getQueuedUri().getCrawlHostGroupId(), "", RESCHEDULE_DELAY));
     }
 
@@ -190,21 +193,30 @@ public class CrawlQueueManager implements AutoCloseable {
     }
 
     private PreFetchHandler getPrefetchHandler() {
-        while (shouldRun) {
-            try {
-                QueuedUri u = getNextQueuedUriToFetch();
-                if (u != null) {
-                    PreFetchHandler p = new PreFetchHandler(u, frontier);
-                    if (p.preFetch()) {
-                        return p;
+        Span span = frontier.getTracer().buildSpan("Prefetch")
+                .withTag(Tags.COMPONENT, "Frontier")
+                .withTag(Tags.SPAN_KIND, Tags.SPAN_KIND_SERVER)
+                .start();
+
+        try (Scope scope = frontier.getTracer().scopeManager().activate(span)) {
+            while (shouldRun) {
+                try {
+                    QueuedUri u = getNextQueuedUriToFetch();
+                    if (u != null) {
+                        PreFetchHandler p = new PreFetchHandler(u, frontier);
+                        if (p.preFetch()) {
+                            return p;
+                        }
                     }
+                } catch (DbException e) {
+                    LOG.warn("Prefetch error: " + e.toString(), e);
+                    return null;
                 }
-            } catch (DbException e) {
-                LOG.warn("Prefetch error: " + e.toString(), e);
-                return null;
             }
+            return null;
+        } finally {
+            span.finish();
         }
-        return null;
     }
 
     private QueuedUri getNextQueuedUriToFetch() {
@@ -287,7 +299,7 @@ public class CrawlQueueManager implements AutoCloseable {
                     postFetchHandler.postFetchFailure(err);
                     postFetchHandler.postFetchFinally();
                 } catch (DbException e) {
-                    LOG.warn("Error while timing o chg {}", chgId, e);
+                    LOG.warn("Error while getting chg {}", chgId, e);
                 }
             }
 

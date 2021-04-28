@@ -306,7 +306,7 @@ public class StatusWrapper {
         return getCrawlExecutionStatus().getDocumentsCrawled();
     }
 
-    public StatusWrapper incrementDocumentsCrawled() {
+    public synchronized StatusWrapper incrementDocumentsCrawled() {
         getChange().setAddDocumentsCrawled(getChange().getAddDocumentsCrawled() + 1);
         return this;
     }
@@ -315,7 +315,7 @@ public class StatusWrapper {
         return getCrawlExecutionStatus().getBytesCrawled();
     }
 
-    public StatusWrapper incrementBytesCrawled(long val) {
+    public synchronized StatusWrapper incrementBytesCrawled(long val) {
         getChange().setAddBytesCrawled(getChange().getAddBytesCrawled() + val);
         return this;
     }
@@ -324,7 +324,7 @@ public class StatusWrapper {
         return getCrawlExecutionStatus().getUrisCrawled();
     }
 
-    public StatusWrapper incrementUrisCrawled(long val) {
+    public synchronized StatusWrapper incrementUrisCrawled(long val) {
         getChange().setAddUrisCrawled(getChange().getAddDocumentsCrawled() + val);
         return this;
     }
@@ -333,7 +333,7 @@ public class StatusWrapper {
         return getCrawlExecutionStatus().getDocumentsFailed();
     }
 
-    public StatusWrapper incrementDocumentsFailed() {
+    public synchronized StatusWrapper incrementDocumentsFailed() {
         getChange().setAddDocumentsFailed(getChange().getAddDocumentsFailed() + 1);
         return this;
     }
@@ -342,7 +342,7 @@ public class StatusWrapper {
         return getCrawlExecutionStatus().getDocumentsOutOfScope();
     }
 
-    public StatusWrapper incrementDocumentsOutOfScope() {
+    public synchronized StatusWrapper incrementDocumentsOutOfScope() {
         getChange().setAddDocumentsOutOfScope(getChange().getAddDocumentsOutOfScope() + 1);
         return this;
     }
@@ -351,7 +351,7 @@ public class StatusWrapper {
         return getCrawlExecutionStatus().getDocumentsRetried();
     }
 
-    public StatusWrapper incrementDocumentsRetried() {
+    public synchronized StatusWrapper incrementDocumentsRetried() {
         getChange().setAddDocumentsRetried(getChange().getAddDocumentsRetried() + 1);
         return this;
     }
@@ -360,7 +360,7 @@ public class StatusWrapper {
         return getCrawlExecutionStatus().getDocumentsDenied();
     }
 
-    public StatusWrapper incrementDocumentsDenied(long val) {
+    public synchronized StatusWrapper incrementDocumentsDenied(long val) {
         getChange().setAddDocumentsDenied(getChange().getAddDocumentsDenied() + val);
         return this;
     }

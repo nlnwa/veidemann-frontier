@@ -17,6 +17,9 @@ package no.nb.nna.veidemann.frontier.worker;
 
 import com.google.protobuf.util.Durations;
 import com.google.protobuf.util.Timestamps;
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
@@ -37,8 +40,11 @@ import org.slf4j.MDC;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.CountedCompleter;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
  *
@@ -56,8 +62,6 @@ public class PostFetchHandler {
 
     private long delayMs = 0L;
     private long fetchTimeMs = 0L;
-
-//    private Span span;
 
     private AtomicBoolean done = new AtomicBoolean();
     private AtomicBoolean finalized = new AtomicBoolean();
@@ -84,6 +88,10 @@ public class PostFetchHandler {
         }
 
         QueuedUri queuedUri = frontier.getCrawlQueueManager().getQueuedUri(chg.getCurrentUriId());
+        if (queuedUri == null) {
+            LOG.debug("Could not find Queued URI. Fetch has probably timed out");
+            throw new IllegalSessionException("Could not find Queued URI. Fetch has probably timed out");
+        }
         fetchTimeMs = Durations.toMillis(Timestamps.between(chg.getFetchStartTimeStamp(), ProtoUtils.getNowTs()));
 
         this.status = StatusWrapper.getStatusWrapper(frontier, queuedUri.getExecutionId());
@@ -162,34 +170,56 @@ public class PostFetchHandler {
                 LOG.error(e.toString(), e);
             }
 
-            frontier.postFetchThreadPool.submit(() -> {
-                MDC.put("eid", qUri.getExecutionId());
-                MDC.put("uri", qUri.getUri());
+            MDC.put("eid", qUri.getExecutionId());
+            MDC.put("uri", qUri.getUri());
 
-                try {
-                    if (!CrawlExecutionHelpers.isAborted(frontier, status)) {
-                        // Handle outlinks
-                        for (QueuedUri outlink : outlinkQueue) {
-                            try {
-                                OutlinkHandler.processOutlink(frontier, status, qUri, outlink, scriptParameters, status.getCrawlJobConfig().getCrawlJob().getScopeScriptRef());
-                            } catch (DbException e) {
-                                // An error here indicates problems with DB communication. No idea how to handle that yet.
-                                LOG.error("Error processing outlink: {}", e.toString(), e);
-                            } catch (Throwable e) {
-                                // Catch everything to ensure crawl host group gets released.
-                                // Discovering this message in logs should be investigated as a possible bug.
-                                LOG.error("Unknown error while processing outlink. Might be a bug", e);
-                            }
+            try {
+                if (!CrawlExecutionHelpers.isAborted(frontier, status)) {
+                    // Handle outlinks
+                    Span span = GlobalTracer.get().activeSpan();
+                    ConfigRef scopeScriptRef = status.getCrawlJobConfig().getCrawlJob().getScopeScriptRef();
+                    forEach(span, frontier.getPostFetchThreadPool(), outlinkQueue, outlink -> {
+                        try {
+                            OutlinkHandler.processOutlink(frontier, status, qUri, outlink, scriptParameters, scopeScriptRef);
+                        } catch (DbException e) {
+                            // An error here indicates problems with DB communication. No idea how to handle that yet.
+                            LOG.error("Error processing outlink: {}", e.toString(), e);
+                        } catch (Throwable e) {
+                            // Catch everything to ensure crawl host group gets released.
+                            // Discovering this message in logs should be investigated as a possible bug.
+                            LOG.error("Unknown error while processing outlink. Might be a bug", e);
                         }
-                    }
-                } catch (DbException e) {
-                    LOG.error(e.toString(), e);
+                    });
                 }
+            } catch (DbException e) {
+                LOG.error(e.toString(), e);
+            }
 
-                CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, getDelay(TimeUnit.MILLISECONDS));
-//                span.finish();
-            });
+            CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, getDelay(TimeUnit.MILLISECONDS));
         }
+    }
+
+    public static <E> void forEach(Span span, ForkJoinPool threadPool, List<E> array, Consumer<E> action) {
+        class Task extends CountedCompleter<Void> {
+            final int lo, hi;
+
+            Task(Task parent, int lo, int hi) {
+                super(parent, 31 - Integer.numberOfLeadingZeros(hi - lo));
+                this.lo = lo;
+                this.hi = hi;
+            }
+
+            public void compute() {
+                try (Scope scope = GlobalTracer.get().activateSpan(span)) {
+                    for (int n = hi - lo; n >= 2; n /= 2)
+                        new Task(this, lo + n / 2, lo + n).fork();
+                    action.accept(array.get(lo));
+                    propagateCompletion();
+                }
+            }
+        }
+        if (array.size() > 0)
+            threadPool.invoke(new Task(null, 0, array.size()));
     }
 
     public void queueOutlink(QueuedUri outlink) throws DbException {

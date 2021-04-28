@@ -23,6 +23,8 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.opentracing.contrib.grpc.TracingClientInterceptor;
+import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.dnsresolver.v1.DnsResolverGrpc;
 import no.nb.nna.veidemann.api.dnsresolver.v1.ResolveReply;
@@ -35,7 +37,6 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.Objects;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -47,24 +48,20 @@ public class DnsServiceClient implements AutoCloseable {
 
     private final ManagedChannel channel;
     private final DnsResolverGrpc.DnsResolverFutureStub futureStub;
-    private final ExecutorService executor;
 
-    public DnsServiceClient(final String host, final int port, ExecutorService executor) {
-        this(ManagedChannelBuilder.forAddress(host, port).usePlaintext(), executor);
+    public DnsServiceClient(final String host, final int port) {
+        this(ManagedChannelBuilder.forAddress(host, port).usePlaintext());
         LOG.info("DNS service client pointing to " + host + ":" + port);
     }
 
-    public DnsServiceClient(ManagedChannelBuilder<?> channelBuilder, ExecutorService executor) {
+    public DnsServiceClient(ManagedChannelBuilder<?> channelBuilder) {
         LOG.debug("Setting up DNS service client");
-//        TODO: Add tracing
-//        ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
-//        channel = channelBuilder.intercept(tracingInterceptor).build();
-        channel = channelBuilder.build();
+        TracingClientInterceptor tracingInterceptor = TracingClientInterceptor.newBuilder().withTracer(GlobalTracer.get()).build();
+        channel = channelBuilder.intercept(tracingInterceptor).build();
         futureStub = DnsResolverGrpc.newFutureStub(channel);
-        this.executor = executor;
     }
 
-    public ListenableFuture<InetSocketAddress> resolve(String host, int port, String executionId, ConfigRef collectionRef) {
+    public ListenableFuture<InetSocketAddress> resolve(Frontier frontier, String host, int port, String executionId, ConfigRef collectionRef) {
         // Ensure host is never null
         String hostName = host == null ? "" : host;
         Objects.requireNonNull(collectionRef, "CollectionRef cannot be null");
@@ -78,7 +75,6 @@ public class DnsServiceClient implements AutoCloseable {
         ListenableFuture<ResolveReply> reply = GrpcUtil.forkedCall(() -> futureStub.resolve(request));
 
         reply = Futures.catchingAsync(reply, Exception.class, e -> {
-
             if (e instanceof StatusRuntimeException) {
                 StatusRuntimeException ex = (StatusRuntimeException) e;
                 if (ex.getStatus().getCode() == Status.UNAVAILABLE.getCode()) {
@@ -94,10 +90,11 @@ public class DnsServiceClient implements AutoCloseable {
             }
         }, MoreExecutors.directExecutor());
 
-        ListenableFuture<InetSocketAddress> address = Futures.transformAsync(reply,
-                r -> Futures.immediateFuture(
-                        new InetSocketAddress(InetAddress.getByAddress(r.getHost(), r.getRawIp().toByteArray()), r.getPort())
-                ), executor);
+        ListenableFuture<InetSocketAddress> address = Futures.transformAsync(reply, r -> {
+            return Futures.immediateFuture(
+                    new InetSocketAddress(InetAddress.getByAddress(r.getHost(), r.getRawIp().toByteArray()), r.getPort())
+            );
+        }, frontier.getAsyncFunctionsThreadPool());
 
         return address;
     }

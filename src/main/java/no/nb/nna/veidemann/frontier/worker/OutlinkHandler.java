@@ -16,6 +16,10 @@
 
 package no.nb.nna.veidemann.frontier.worker;
 
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.Tracer;
+import io.opentracing.tag.Tags;
 import no.nb.nna.veidemann.api.config.v1.Annotation;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
@@ -48,7 +52,13 @@ public class OutlinkHandler {
             throws DbException {
 
         boolean wasQueued = false;
-        try {
+        Tracer tracer = frontier.getTracer();
+        Span span = tracer.buildSpan("processOutlink")
+                .withTag(Tags.COMPONENT, "Frontier")
+                .withTag(Tags.SPAN_KIND, Tags.SPAN_KIND_SERVER)
+                .withTag("uri", outlink.getUri())
+                .start();
+        try (Scope scope = tracer.scopeManager().activate(span)) {
             String canonicalizedUri = frontier.getScopeServiceClient().canonicalize(outlink.getUri());
             QueuedUri.Builder ol = outlink.toBuilder()
                     .setUri(canonicalizedUri);
@@ -81,6 +91,8 @@ public class OutlinkHandler {
             LOG.info("Illegal URI {}", ex);
         } catch (InterruptedException | ExecutionException e) {
             LOG.error(e.toString(), e);
+        } finally {
+            span.finish();
         }
         return wasQueued;
     }

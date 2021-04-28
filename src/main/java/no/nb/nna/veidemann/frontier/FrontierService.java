@@ -15,21 +15,23 @@
  */
 package no.nb.nna.veidemann.frontier;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigBeanFactory;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
+import io.jaegertracing.Configuration;
+import io.opentracing.Tracer;
+import io.opentracing.util.GlobalTracer;
 import io.prometheus.client.exporter.HTTPServer;
 import io.prometheus.client.hotspot.DefaultExports;
-import no.nb.nna.veidemann.commons.client.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.frontier.api.FrontierApiServer;
 import no.nb.nna.veidemann.frontier.settings.Settings;
 import no.nb.nna.veidemann.frontier.worker.DnsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
-import no.nb.nna.veidemann.frontier.worker.RobotsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.LogServiceClient;
+import no.nb.nna.veidemann.frontier.worker.OutOfScopeHandlerClient;
+import no.nb.nna.veidemann.frontier.worker.RobotsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,11 +40,6 @@ import redis.clients.jedis.JedisPoolConfig;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Class for launching the service.
@@ -53,19 +50,10 @@ public class FrontierService {
 
     private static final Settings SETTINGS;
 
-    public static final ExecutorService asyncFunctionsExecutor;
-
     static {
         Config config = ConfigFactory.load();
         config.checkValid(ConfigFactory.defaultReference());
         SETTINGS = ConfigBeanFactory.create(config, Settings.class);
-
-//        TODO: Add tracing
-//        TracerFactory.init("Frontier");
-
-        asyncFunctionsExecutor = new ThreadPoolExecutor(2, 128, 15, TimeUnit.SECONDS,
-                new SynchronousQueue<>(),
-                new ThreadFactoryBuilder().setNameFormat("asyncFunc-%d").build(), new CallerRunsPolicy());
     }
 
     /**
@@ -81,6 +69,9 @@ public class FrontierService {
      * @return this instance
      */
     public FrontierService start() {
+        Tracer tracer = Configuration.fromEnv().getTracer();
+        GlobalTracer.registerIfAbsent(tracer);
+
         DefaultExports.initialize();
         try {
             HTTPServer server = new HTTPServer(SETTINGS.getPrometheusPort());
@@ -90,16 +81,19 @@ public class FrontierService {
         }
 
         JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
-        jedisPoolConfig.setMaxTotal(64);
+        jedisPoolConfig.setMaxTotal(256);
+        jedisPoolConfig.setMaxIdle(16);
+        jedisPoolConfig.setMinIdle(2);
+
         try (DbService db = DbService.configure(SETTINGS);
 
              JedisPool jedisPool = new JedisPool(jedisPoolConfig, URI.create("redis://" + SETTINGS.getRedisHost() + ':' + SETTINGS.getRedisPort()));
 
              RobotsServiceClient robotsServiceClient = new RobotsServiceClient(
-                     SETTINGS.getRobotsEvaluatorHost(), SETTINGS.getRobotsEvaluatorPort(), asyncFunctionsExecutor);
+                     SETTINGS.getRobotsEvaluatorHost(), SETTINGS.getRobotsEvaluatorPort());
 
              DnsServiceClient dnsServiceClient = new DnsServiceClient(
-                     SETTINGS.getDnsResolverHost(), SETTINGS.getDnsResolverPort(), asyncFunctionsExecutor);
+                     SETTINGS.getDnsResolverHost(), SETTINGS.getDnsResolverPort());
 
              ScopeServiceClient scopeServiceClient = new ScopeServiceClient(
                      SETTINGS.getScopeserviceHost(), SETTINGS.getScopeservicePort());
@@ -110,7 +104,7 @@ public class FrontierService {
              LogServiceClient logServiceClient = new LogServiceClient(
                      SETTINGS.getLogServiceHost(), SETTINGS.getLogServicePort());
 
-             Frontier frontier = new Frontier(SETTINGS, jedisPool, robotsServiceClient, dnsServiceClient, scopeServiceClient,
+             Frontier frontier = new Frontier(tracer, SETTINGS, jedisPool, robotsServiceClient, dnsServiceClient, scopeServiceClient,
                      outOfScopeHandlerClient, logServiceClient);
         ) {
 

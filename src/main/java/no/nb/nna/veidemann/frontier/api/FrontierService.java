@@ -15,8 +15,6 @@
  */
 package no.nb.nna.veidemann.frontier.api;
 
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
 import com.google.protobuf.Empty;
 import io.grpc.Status;
 import io.grpc.stub.ServerCallStreamObserver;
@@ -63,28 +61,10 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public void crawlSeed(CrawlSeedRequest request, StreamObserver<CrawlExecutionId> responseObserver) {
-//        TODO: Add tracing
-//        try (ActiveSpan span = GlobalTracer.get()
-//                .buildSpan("scheduleSeed")
-//                .asChildOf(OpenTracingContextKey.activeSpan())
-//                .withTag(Tags.COMPONENT.getKey(), "Frontier")
-//                .withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_SERVER)
-//                .withTag("uri", request.getSeed().getMeta().getName())
-//                .startActive()) {
         try {
-            Futures.addCallback(ctx.getFrontier().scheduleSeed(request),
-                    new FutureCallback<CrawlExecutionStatus>() {
-                        public void onSuccess(CrawlExecutionStatus reply) {
-                            responseObserver.onNext(CrawlExecutionId.newBuilder().setId(reply.getId()).build());
-                            responseObserver.onCompleted();
-                        }
-
-                        public void onFailure(Throwable t) {
-                            LOG.error("Crawl seed error: " + t.getMessage(), t);
-                            Status status = Status.UNKNOWN.withDescription(t.toString());
-                            responseObserver.onError(status.asException());
-                        }
-                    }, no.nb.nna.veidemann.frontier.FrontierService.asyncFunctionsExecutor);
+            CrawlExecutionStatus reply = ctx.getFrontier().scheduleSeed(request);
+            responseObserver.onNext(CrawlExecutionId.newBuilder().setId(reply.getId()).build());
+            responseObserver.onCompleted();
         } catch (Exception e) {
             LOG.error("Crawl seed error: " + e.getMessage(), e);
             Status status = Status.UNKNOWN.withDescription(e.toString());

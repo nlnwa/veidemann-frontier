@@ -19,6 +19,8 @@ import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
+import io.opentracing.contrib.grpc.TracingClientInterceptor;
+import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.log.v1.CrawlLog;
 import no.nb.nna.veidemann.api.log.v1.LogGrpc;
 import no.nb.nna.veidemann.api.log.v1.LogGrpc.LogStub;
@@ -46,7 +48,8 @@ public class LogServiceClient implements AutoCloseable {
     }
 
     public LogServiceClient(ManagedChannelBuilder<?> channelBuilder) {
-        channel = channelBuilder.build();
+        TracingClientInterceptor tracingInterceptor = TracingClientInterceptor.newBuilder().withTracer(GlobalTracer.get()).build();
+        channel = channelBuilder.intercept(tracingInterceptor).build();
         logStub = LogGrpc.newStub(channel);
     }
 

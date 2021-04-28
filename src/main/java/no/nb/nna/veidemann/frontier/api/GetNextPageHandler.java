@@ -5,6 +5,10 @@ import io.grpc.Status.Code;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.noop.NoopSpan;
+import io.opentracing.tag.Tags;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
@@ -21,14 +25,20 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
     final ServerCallStreamObserver responseObserver;
     private String sessionToken;
     private PostFetchHandler postFetchHandler;
+    private Span span;
 
     public GetNextPageHandler(RequestContext ctx) {
         this.responseObserver = ctx.getResponseObserver();
         this.ctx = ctx;
+        span = ctx.getFrontier().getTracer().scopeManager().activeSpan();
+        if (span == null) {
+            span = NoopSpan.INSTANCE;
+        }
     }
 
     public void sendError() {
         try {
+            sessionToken = null;
             responseObserver.onError(Status.ABORTED.asException());
         } catch (Exception e) {
             // OK if this fails
@@ -40,39 +50,50 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
     public void onNext(PageHarvest value) {
         switch (value.getMsgCase()) {
             case REQUESTNEXTPAGE:
-                LOG.trace("Got request for new URI");
-                if (ctx.isCancelled()) {
-                    responseObserver.onError(Status.UNAVAILABLE.asException());
-                    ctx.setObserverCompleted();
-                    return;
-                }
-                try {
-                    PageHarvestSpec pageHarvestSpec = null;
-                    while (pageHarvestSpec == null && !ctx.isCancelled()) {
-                        pageHarvestSpec = ctx.getCrawlQueueManager().getNextToFetch(ctx);
-                        if (pageHarvestSpec == null || ctx.isCancelled()) {
-                            LOG.trace("Context cancelled");
-                            sendError();
-                            return;
-                        }
+                span = ctx.getFrontier().getTracer().buildSpan("requestNextPage")
+                        .withTag(Tags.COMPONENT, "Frontier")
+                        .withTag(Tags.SPAN_KIND, Tags.SPAN_KIND_SERVER)
+                        .start();
+
+                try (Scope scope = ctx.getFrontier().getTracer().scopeManager().activate(span)) {
+                    LOG.trace("Got request for new URI");
+                    if (ctx.isCancelled()) {
+                        responseObserver.onError(Status.UNAVAILABLE.asException());
+                        ctx.setObserverCompleted();
+                        return;
                     }
-                    sessionToken = pageHarvestSpec.getSessionToken();
-                    ctx.startPageFetch();
                     try {
-                        responseObserver.onNext(pageHarvestSpec);
-                    } catch (StatusRuntimeException e) {
-                        if (e.getStatus().getCode() == Code.CANCELLED) {
-                            sendError();
-                            return;
-                        } else {
-                            throw e;
+                        PageHarvestSpec pageHarvestSpec = null;
+                        while (pageHarvestSpec == null && !ctx.isCancelled()) {
+                            pageHarvestSpec = ctx.getCrawlQueueManager().getNextToFetch(ctx);
+                            if (pageHarvestSpec == null || ctx.isCancelled()) {
+                                LOG.trace("Context cancelled");
+                                sendError();
+                                return;
+                            }
                         }
+                        sessionToken = pageHarvestSpec.getSessionToken();
+                        span.setTag("uri", pageHarvestSpec.getQueuedUri().getUri());
+                        span.setTag("sessionToken", sessionToken);
+                        ctx.startPageFetch();
+                        try {
+                            responseObserver.onNext(pageHarvestSpec);
+                        } catch (StatusRuntimeException e) {
+                            if (e.getStatus().getCode() == Code.CANCELLED) {
+                                sendError();
+                                return;
+                            } else {
+                                throw e;
+                            }
+                        }
+                    } catch (Exception e) {
+                        LOG.error("Error preparing new fetch: {}", e.toString(), e);
+                        sendError();
                     }
-                } catch (Exception e) {
-                    LOG.error("Error preparing new fetch: {}", e.toString(), e);
-                    sendError();
+                    break;
+                } finally {
+                    span.finish();
                 }
-                break;
             case METRICS:
                 try {
                     if (postFetchHandler == null) {
@@ -117,8 +138,13 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
 
     @Override
     public void onError(Throwable t) {
-        LOG.warn("gRPC Error from harvester", t);
-        try {
+        if (sessionToken == null || (t instanceof StatusRuntimeException && ((StatusRuntimeException) t).getStatus().getCode() == Code.CANCELLED)) {
+            ctx.setObserverCompleted();
+            return;
+        }
+
+        LOG.warn("gRPC Error from harvester (Session token: {})", sessionToken, t);
+        try (Scope scope = ctx.getFrontier().getTracer().scopeManager().activate(span)) {
             try {
                 if (postFetchHandler == null) {
                     postFetchHandler = new PostFetchHandler(sessionToken, ctx.getFrontier());
@@ -137,7 +163,12 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
 
     @Override
     public void onCompleted() {
-        try {
+        Span span = ctx.getFrontier().getTracer().buildSpan("completeFetch")
+                .withTag(Tags.COMPONENT, "Frontier")
+                .withTag(Tags.SPAN_KIND, Tags.SPAN_KIND_SERVER)
+                .start();
+
+        try (Scope scope = ctx.getFrontier().getTracer().scopeManager().activate(span)) {
             try {
                 if (postFetchHandler == null) {
                     postFetchHandler = new PostFetchHandler(sessionToken, ctx.getFrontier());
@@ -161,6 +192,7 @@ public class GetNextPageHandler implements StreamObserver<PageHarvest> {
             }
         } finally {
             ctx.setObserverCompleted();
+            span.finish();
         }
     }
 }

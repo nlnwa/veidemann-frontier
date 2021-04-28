@@ -47,7 +47,7 @@ public class ErrorHandler {
             if (LimitsCheck.isRetryLimitReached(qUri)) {
                 LOG.info("Failed fetch of {} ({} {}) at attempt #{}. Uri will not be retried due to retry limit",
                         qUri.getUri(), error.getCode(), error.getMsg(), qUri.getRetries());
-                DbUtil.writeLog(frontier, qUri, ExtraStatusCodes.RETRY_LIMIT_REACHED.getCode());
+                frontier.writeLog(frontier, qUri, ExtraStatusCodes.RETRY_LIMIT_REACHED.getCode());
                 status.incrementDocumentsFailed();
             } else {
                 LOG.info("Failed fetch of {} ({} {}) at attempt #{}, retrying in {} seconds",

@@ -20,12 +20,13 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
+import io.opentracing.Scope;
+import io.opentracing.Span;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.config.v1.PolitenessConfig.RobotsPolicy;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbException;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,7 +70,7 @@ public class Preconditions {
                     // Do not log BLOCKED and TOO_MANY_HOPS
                     break;
                 default:
-                    DbUtil.writeLog(frontier, qUri);
+                    frontier.writeLog(frontier, qUri);
             }
             status.incrementDocumentsOutOfScope();
             frontier.getOutOfScopeHandlerClient().submitUri(qUri.getQueuedUri());
@@ -81,7 +82,8 @@ public class Preconditions {
 
             LOG.debug("Resolve ip for URI '{}'", qUri.getUri());
             Futures.addCallback(frontier.getDnsServiceClient()
-                            .resolve(qUri.getHost(), qUri.getPort(), qUri.getExecutionId(), crawlConfig.getCrawlConfig().getCollectionRef()),
+                            .resolve(frontier, qUri.getHost(), qUri.getPort(), qUri.getExecutionId(),
+                                    crawlConfig.getCrawlConfig().getCollectionRef()),
                     new ResolveDnsCallback(frontier, qUri, status, crawlConfig, future),
                     MoreExecutors.directExecutor());
             return future;
@@ -102,6 +104,7 @@ public class Preconditions {
         private final StatusWrapper status;
         private final ConfigObject crawlConfig;
         private final SettableFuture<PreconditionState> future;
+        private final Span span;
 
         public ResolveDnsCallback(Frontier frontier, QueuedUriWrapper qUri, StatusWrapper status, ConfigObject crawlConfig, SettableFuture<PreconditionState> future) {
             this.frontier = frontier;
@@ -109,11 +112,12 @@ public class Preconditions {
             this.status = status;
             this.crawlConfig = crawlConfig;
             this.future = future;
+            this.span = frontier.getTracer().activeSpan();
         }
 
         @Override
-        public void onSuccess(@Nullable InetSocketAddress result) {
-            try {
+        public void onSuccess(InetSocketAddress result) {
+            try (Scope scope = frontier.getTracer().scopeManager().activate(span)) {
                 ConfigObject politeness = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
                 ConfigObject browserConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getBrowserConfigRef());
 
@@ -133,7 +137,7 @@ public class Preconditions {
                     isAllowedFunc.accept(true);
                 } else {
                     Futures.addCallback(frontier.getRobotsServiceClient()
-                                    .isAllowed(qUri.getQueuedUri(), browserConfig.getBrowserConfig().getUserAgent(), politeness, crawlConfig.getCrawlConfig().getCollectionRef()),
+                                    .isAllowed(frontier, qUri.getQueuedUri(), browserConfig.getBrowserConfig().getUserAgent(), politeness, crawlConfig.getCrawlConfig().getCollectionRef()),
                             new CheckRobotsCallback(isAllowedFunc),
                             MoreExecutors.directExecutor());
                 }
@@ -149,7 +153,7 @@ public class Preconditions {
                     qUri.getHost(),
                     qUri.getPort());
 
-            try {
+            try (Scope scope = frontier.getTracer().scopeManager().activate(span)) {
                 qUri.setError(ExtraStatusCodes.FAILED_DNS.toFetchError(t.toString()))
                         .setEarliestFetchDelaySeconds(qUri.getCrawlHostGroup().getRetryDelaySeconds());
                 PreconditionState state = ErrorHandler.fetchFailure(frontier, status, qUri, qUri.getError());
@@ -169,23 +173,29 @@ public class Preconditions {
 
     static class CheckRobotsCallback implements FutureCallback<Boolean> {
         private final IsAllowedFunc isAllowedFunc;
+        private final Span span;
 
         public CheckRobotsCallback(IsAllowedFunc isAllowedFunc) {
             this.isAllowedFunc = isAllowedFunc;
+            this.span = isAllowedFunc.frontier.getTracer().activeSpan();
         }
 
         @Override
-        public void onSuccess(@Nullable Boolean result) {
-            isAllowedFunc.accept(result);
+        public void onSuccess(Boolean result) {
+            try (Scope scope = isAllowedFunc.frontier.getTracer().scopeManager().activate(span)) {
+                isAllowedFunc.accept(result);
+            }
         }
 
         @Override
         public void onFailure(Throwable t) {
-            LOG.info("Failed checking robots.txt for URI '{}', will allow harvest. Cause: {}",
-                    isAllowedFunc.qUri.getUri(),
-                    t.toString());
+            try (Scope scope = isAllowedFunc.frontier.getTracer().scopeManager().activate(span)) {
+                LOG.info("Failed checking robots.txt for URI '{}', will allow harvest. Cause: {}",
+                        isAllowedFunc.qUri.getUri(),
+                        t.toString());
 
-            isAllowedFunc.accept(true);
+                isAllowedFunc.accept(true);
+            }
         }
     }
 
@@ -218,7 +228,7 @@ public class Preconditions {
                     LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
                     qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
                     status.incrementDocumentsDenied(1L);
-                    DbUtil.writeLog(frontier, qUri);
+                    frontier.writeLog(frontier, qUri);
                     future.set(PreconditionState.DENIED);
                 }
             } catch (DbException e) {
