@@ -23,6 +23,8 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.opentracing.contrib.grpc.TracingClientInterceptor;
+import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
@@ -33,7 +35,6 @@ import no.nb.nna.veidemann.commons.client.GrpcUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -44,24 +45,20 @@ public class RobotsServiceClient implements AutoCloseable {
 
     private final ManagedChannel channel;
     private final RobotsEvaluatorGrpc.RobotsEvaluatorFutureStub futureStub;
-    private final ExecutorService executor;
 
-    public RobotsServiceClient(final String host, final int port, ExecutorService executor) {
-        this(ManagedChannelBuilder.forAddress(host, port).usePlaintext(), executor);
+    public RobotsServiceClient(final String host, final int port) {
+        this(ManagedChannelBuilder.forAddress(host, port).usePlaintext());
         LOG.info("Robots service client pointing to " + host + ":" + port);
     }
 
-    public RobotsServiceClient(ManagedChannelBuilder<?> channelBuilder, ExecutorService executor) {
+    public RobotsServiceClient(ManagedChannelBuilder<?> channelBuilder) {
         LOG.info("Setting up Robots service client");
-//        TODO: Add tracing
-//        ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
-//        channel = channelBuilder.intercept(tracingInterceptor).build();
-        channel = channelBuilder.build();
+        TracingClientInterceptor tracingInterceptor = TracingClientInterceptor.newBuilder().withTracer(GlobalTracer.get()).build();
+        channel = channelBuilder.intercept(tracingInterceptor).build();
         futureStub = RobotsEvaluatorGrpc.newFutureStub(channel);
-        this.executor = executor;
     }
 
-    public ListenableFuture<Boolean> isAllowed(QueuedUri queuedUri, String userAgent, ConfigObject politeness, ConfigRef collectionRef) {
+    public ListenableFuture<Boolean> isAllowed(Frontier frontier, QueuedUri queuedUri, String userAgent, ConfigObject politeness, ConfigRef collectionRef) {
         IsAllowedRequest request = IsAllowedRequest.newBuilder()
                 .setJobExecutionId(queuedUri.getJobExecutionId())
                 .setExecutionId(queuedUri.getExecutionId())
@@ -90,7 +87,7 @@ public class RobotsServiceClient implements AutoCloseable {
         ListenableFuture<Boolean> isAllowed = Futures.transformAsync(reply,
                 r -> Futures.immediateFuture(
                         r.getIsAllowed()
-                ), executor);
+                ), frontier.getAsyncFunctionsThreadPool());
 
         return isAllowed;
     }

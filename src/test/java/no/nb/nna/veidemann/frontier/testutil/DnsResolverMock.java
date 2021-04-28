@@ -110,7 +110,7 @@ public class DnsResolverMock implements AutoCloseable {
 
             Matcher m = seedNumPattern.matcher(request.getHost());
             if (!m.matches()) {
-                System.out.println("Regex error");
+                LOG.error("Regex error");
             }
 
             String textualIp = String.format("127.%s.%s.%s", m.group(1), m.group(2), m.group(3));

@@ -27,18 +27,16 @@
         <docker.tag>${project.version}</docker.tag>
 
         <veidemann.api.version>1.0.0-beta23</veidemann.api.version>
-        <veidemann.commons.version>0.5.0</veidemann.commons.version>
-        <veidemann.rethinkdbadapter.version>0.7.0</veidemann.rethinkdbadapter.version>
+        <veidemann.commons.version>v0.6.0</veidemann.commons.version>
+        <veidemann.rethinkdbadapter.version>0.8.0</veidemann.rethinkdbadapter.version>
 
         <com.github.netflix.concurrency-limits.version>0.3.7</com.github.netflix.concurrency-limits.version>
         <log4j.version>2.13.3</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
+        <io.opentracing.version>0.33.0</io.opentracing.version>
 
         <junit.jupiter.version>5.7.0</junit.jupiter.version>
-
-        <!--Docker container versions for integration tests-->
-        <rethinkdb.version>2.3.6</rethinkdb.version>
-        <redis.version>6-alpine</redis.version>
+        <org.testcontainers.version>1.15.3</org.testcontainers.version>
 
         <!-- Docker auth credentials -->
         <!--suppress UnresolvedMavenProperty -->
@@ -93,9 +91,7 @@
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
-            <version>3.4.1</version>
-            <type>jar</type>
-            <scope>compile</scope>
+            <version>3.6.0</version>
         </dependency>
 
         <dependency>
@@ -119,14 +115,14 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>30.1-jre</version>
+            <version>30.1.1-jre</version>
         </dependency>
 
         <!-- Configuration framework -->
         <dependency>
             <groupId>com.typesafe</groupId>
             <artifactId>config</artifactId>
-            <version>1.3.3</version>
+            <version>1.4.1</version>
         </dependency>
 
         <!-- Do all logging thru Log4j -->
@@ -154,6 +150,28 @@
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-jul</artifactId>
             <version>${log4j.version}</version>
+        </dependency>
+
+        <!-- Tracing dependencies -->
+        <dependency>
+            <groupId>io.jaegertracing</groupId>
+            <artifactId>jaeger-client</artifactId>
+            <version>1.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentracing</groupId>
+            <artifactId>opentracing-api</artifactId>
+            <version>${io.opentracing.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentracing</groupId>
+            <artifactId>opentracing-util</artifactId>
+            <version>${io.opentracing.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentracing.contrib</groupId>
+            <artifactId>opentracing-grpc</artifactId>
+            <version>0.2.3</version>
         </dependency>
 
         <!-- Prometheus dependencies -->
@@ -232,13 +250,19 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>
-            <version>1.15.2</version>
+            <version>${org.testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>1.15.2</version>
+            <version>${org.testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentracing</groupId>
+            <artifactId>opentracing-mock</artifactId>
+            <version>${io.opentracing.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -257,14 +281,9 @@
                     <version>3.0.0-M5</version>
                 </plugin>
                 <plugin>
-                    <groupId>io.fabric8</groupId>
-                    <artifactId>docker-maven-plugin</artifactId>
-                    <version>0.34.1</version>
-                </plugin>
-                <plugin>
                     <groupId>com.google.cloud.tools</groupId>
                     <artifactId>jib-maven-plugin</artifactId>
-                    <version>2.7.1</version>
+                    <version>3.0.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
@@ -325,6 +344,8 @@
                         <logService.host>localhost</logService.host>
                         <!--suppress UnresolvedMavenProperty -->
                         <logService.port>${logService.port}</logService.port>
+
+                        <veidemann.rethinkdbadapter.version>v${veidemann.rethinkdbadapter.version}</veidemann.rethinkdbadapter.version>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

@@ -23,21 +23,16 @@ import io.grpc.stub.StreamObserver;
 import no.nb.nna.veidemann.api.log.v1.CrawlLog;
 import no.nb.nna.veidemann.api.log.v1.LogGrpc;
 import no.nb.nna.veidemann.api.log.v1.WriteCrawlLogRequest;
-import org.checkerframework.checker.units.qual.C;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class LogServiceMock implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(LogServiceMock.class);
 
-    public final List<CrawlLog> crawlLogs = Collections.synchronizedList(new ArrayList<>());
+    public final RequestLog<CrawlLog> crawlLogs = new RequestLog<>();
 
     final Server server;
 
@@ -66,7 +61,7 @@ public class LogServiceMock implements AutoCloseable {
             return new StreamObserver<>() {
                 @Override
                 public void onNext(WriteCrawlLogRequest writeCrawlLogRequest) {
-                    crawlLogs.add(writeCrawlLogRequest.getCrawlLog());
+                    crawlLogs.addRequest(writeCrawlLogRequest.getCrawlLog());
                 }
 
                 @Override
@@ -76,9 +71,10 @@ public class LogServiceMock implements AutoCloseable {
 
                 @Override
                 public void onCompleted() {
+                    responseObserver.onNext(Empty.getDefaultInstance());
                     responseObserver.onCompleted();
                 }
             };
-       }
+        }
     }
 }

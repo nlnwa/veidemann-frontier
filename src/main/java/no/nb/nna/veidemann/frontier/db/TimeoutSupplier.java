@@ -67,7 +67,7 @@ public class TimeoutSupplier<E> implements AutoCloseable {
         while (true) {
             lock.lock();
             try {
-                while (running && (paused || queue.size() >= queueCapacity)) {
+                while (running && (paused || count > queueCapacity)) {
                     mightHaveSpace.await();
                 }
                 if (!running) {
@@ -218,19 +218,6 @@ public class TimeoutSupplier<E> implements AutoCloseable {
             } finally {
                 lock.unlock();
             }
-        }
-    }
-
-    private class TimeoutHandler implements Runnable {
-        final Element element;
-
-        public TimeoutHandler(Element element) {
-            this.element = element;
-        }
-
-        @Override
-        public void run() {
-            element.cancel();
         }
     }
 }

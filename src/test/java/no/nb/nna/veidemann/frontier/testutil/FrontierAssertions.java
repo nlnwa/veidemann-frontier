@@ -1,12 +1,14 @@
 package no.nb.nna.veidemann.frontier.testutil;
 
+import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
+import no.nb.nna.veidemann.api.log.v1.CrawlLog;
 
 public class FrontierAssertions {
-    public static RequestLogAssert assertThat(RequestLog actual) {
-        return new RequestLogAssert(actual);
+    public static <T> RequestLogAssert<T> assertThat(RequestLog<T> actual) {
+        return new RequestLogAssert<T>(actual);
     }
 
     public static RethinkDbDataAssert assertThat(RethinkDbData actual) {
@@ -27,6 +29,14 @@ public class FrontierAssertions {
 
     public static CrawlExecutionStatusAssert assertThat(CrawlExecutionStatus actual) {
         return new CrawlExecutionStatusAssert(actual);
+    }
+
+    public static CrawlLogAssert assertThat(CrawlLog actual) {
+        return new CrawlLogAssert(actual);
+    }
+
+    public static ErrorAssert assertThat(Error actual) {
+        return new ErrorAssert(actual);
     }
 
 }

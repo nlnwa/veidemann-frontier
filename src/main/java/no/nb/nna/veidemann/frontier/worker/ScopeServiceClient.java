@@ -20,6 +20,8 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.opentracing.contrib.grpc.TracingClientInterceptor;
+import io.opentracing.util.GlobalTracer;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckRequest;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopeCheckResponse;
 import no.nb.nna.veidemann.api.scopechecker.v1.ScopesCheckerServiceGrpc;
@@ -56,11 +58,9 @@ public class ScopeServiceClient implements AutoCloseable {
     }
 
     public ScopeServiceClient(ManagedChannelBuilder<?> channelBuilder) {
-        LOG.debug("Setting up scope service client");
-//        TODO: Add tracing
-//        ClientTracingInterceptor tracingInterceptor = new ClientTracingInterceptor.Builder(GlobalTracer.get()).build();
-//        channel = channelBuilder.intercept(tracingInterceptor).build();
-        channel = channelBuilder.build();
+        LOG.debug("Setting up Scope Service client");
+        TracingClientInterceptor tracingInterceptor = TracingClientInterceptor.newBuilder().withTracer(GlobalTracer.get()).build();
+        channel = channelBuilder.intercept(tracingInterceptor).build();
         canonBlockingStub = UriCanonicalizerServiceGrpc.newBlockingStub(channel);
         canonFutureStub = UriCanonicalizerServiceGrpc.newFutureStub(channel);
         scopeBlockingStub = ScopesCheckerServiceGrpc.newBlockingStub(channel);

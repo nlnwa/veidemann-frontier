@@ -9,7 +9,7 @@
         <Logger name="REDIS" level="warn" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
-        <Logger name="no.nb.nna.veidemann.frontier" level="info" additivity="false">
+        <Logger name="no.nb.nna.veidemann.frontier" level="warn" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
         <Root level="error">

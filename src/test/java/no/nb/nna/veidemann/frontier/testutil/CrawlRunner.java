@@ -17,6 +17,8 @@
 package no.nb.nna.veidemann.frontier.testutil;
 
 import com.google.common.util.concurrent.SettableFuture;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.ConfigRef;
 import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
@@ -27,25 +29,51 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlSeedRequest.Builder;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
+import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus.State;
 import no.nb.nna.veidemann.commons.db.ConfigAdapter;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.db.ExecutionsAdapter;
 import no.nb.nna.veidemann.commons.util.ApiTools;
+import no.nb.nna.veidemann.frontier.settings.Settings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import redis.clients.jedis.JedisPool;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
 
-public class SetupCrawl {
+import static org.awaitility.Awaitility.await;
+
+public class CrawlRunner implements AutoCloseable {
+    private static final Logger LOG = LoggerFactory.getLogger(CrawlRunner.class);
+
     ConfigAdapter c = DbService.getInstance().getConfigAdapter();
     ExecutionsAdapter e = DbService.getInstance().getExecutionsAdapter();
     public List<ConfigObject> seeds = new ArrayList<>();
     public Map<String, SettableFuture<CrawlExecutionId>> crawlExecutions = new HashMap<>();
     public ConfigObject crawlJob;
+    private final ManagedChannel frontierChannel;
+    private final FrontierGrpc.FrontierBlockingStub frontierStub;
+    private final RethinkDbData rethinkDbData;
+    private final JedisPool jedisPool;
+
+    JobExecutionStatus jes;
+    Instant testStart;
+
+    public CrawlRunner(Settings settings, RethinkDbData rethinkDbData, JedisPool jedisPool) {
+        frontierChannel = ManagedChannelBuilder.forAddress("localhost", settings.getApiPort()).usePlaintext().build();
+        frontierStub = FrontierGrpc.newBlockingStub(frontierChannel).withWaitForReady();
+        this.rethinkDbData = rethinkDbData;
+        this.jedisPool = jedisPool;
+    }
 
     public void setup(int seedCount) throws DbException {
         setup(seedCount, CrawlLimitsConfig.getDefaultInstance());
@@ -149,9 +177,9 @@ public class SetupCrawl {
         }
     }
 
-    public JobExecutionStatus runCrawl(FrontierGrpc.FrontierBlockingStub frontierStub) throws DbException {
+    public JobExecutionStatus runCrawl() throws DbException {
         System.out.print("Submitting seeds to job ");
-        JobExecutionStatus jes = e.createJobExecutionStatus(crawlJob.getId());
+        jes = e.createJobExecutionStatus(crawlJob.getId());
         for (ConfigObject seed : seeds) {
             ForkJoinPool.commonPool().submit((Callable<Void>) () -> {
                 Builder requestBuilder = CrawlSeedRequest.newBuilder()
@@ -165,6 +193,34 @@ public class SetupCrawl {
             System.out.print(".");
         }
         System.out.println(" DONE");
+        testStart = Instant.now();
         return jes;
+    }
+
+    public void awaitCrawlFinished() {
+        awaitCrawlFinished(30, TimeUnit.SECONDS);
+    }
+
+    public Duration awaitCrawlFinished(long timeout, TimeUnit unit) {
+        await().pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).atMost(timeout, unit)
+                .until(() -> {
+                    JobExecutionStatus j = DbService.getInstance().getExecutionsAdapter().getJobExecutionStatus(jes.getId());
+                    if (LOG.isInfoEnabled() && j.getExecutionsStateCount() > 0) {
+                        LOG.info("Job State {}, Executions: {}", j.getState(), j.getExecutionsStateMap());
+                    }
+                    if (State.RUNNING != j.getState() && rethinkDbData.getQueuedUris().isEmpty() && jedisPool.getResource().keys("*").size() <= 1) {
+                        return true;
+                    }
+                    return false;
+                });
+        Duration testTime = Duration.between(testStart, Instant.now());
+        LOG.info(String.format("Test time: %02d:%02d:%02d.%d",
+                testTime.toHoursPart(), testTime.toMinutesPart(), testTime.toSecondsPart(), testTime.toMillisPart()));
+        return testTime;
+    }
+
+    @Override
+    public void close() throws Exception {
+        frontierChannel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
     }
 }
