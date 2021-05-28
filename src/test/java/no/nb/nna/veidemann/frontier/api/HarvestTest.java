@@ -1,10 +1,13 @@
 package no.nb.nna.veidemann.frontier.api;
 
+import no.nb.nna.veidemann.api.config.v1.ConfigObject;
 import no.nb.nna.veidemann.api.config.v1.CrawlLimitsConfig;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.frontier.db.CrawlQueueManager;
+import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.RunningCrawl;
+import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.SeedAndExecutions;
 import no.nb.nna.veidemann.frontier.testutil.HarvesterMock;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -13,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import redis.clients.jedis.Jedis;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -36,14 +40,15 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
-                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(jes.getId(), j -> {
+                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(crawl.getStatus().getId(), j -> {
             assertThat(j)
                     .hasState(JobExecutionStatus.State.FINISHED)
                     .hasStartTime(true)
@@ -54,7 +59,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                     .documentsRetriedEquals(0)
                     .documentsOutOfScopeEquals(27);
         });
-        String crawlExecutionId1 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(0).getId()).get().getId();
+        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
+
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
                 .hasEntrySatisfying(crawlExecutionId1, s -> {
@@ -92,24 +98,25 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         // logServiceMock.withExpectedNrOfWrites(2);
         harvesterMock
-                .withExceptionForAllUrlRequests("http://stress-000000.com")
-                .withExceptionForUrlRequests("http://stress-000001.com", 1, 1)
-                .withExceptionForAllUrlRequests("http://stress-000002.com/p0/p2")
+                .withExceptionForAllUrlRequests("http://a.seed-000000.com")
+                .withExceptionForUrlRequests("http://a.seed-000001.com", 1, 1)
+                .withExceptionForAllUrlRequests("http://a.seed-000002.com/p0/p2")
                 .withLinksPerLevel(linksPerLevel);
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(2);
         assertThat(logServiceMock.crawlLogs.get(0))
                 .hasWarcId()
                 .statusCodeEquals(RETRY_LIMIT_REACHED)
-                .requestedUriEquals("http://stress-000000.com")
+                .requestedUriEquals("http://a.seed-000000.com")
                 .error().isNotNull().codeEquals(RUNTIME_EXCEPTION);
         assertThat(logServiceMock.crawlLogs.get(1))
                 .hasWarcId()
                 .statusCodeEquals(RETRY_LIMIT_REACHED.getCode())
-                .requestedUriEquals("http://stress-000002.com/p0/p2")
+                .requestedUriEquals("http://a.seed-000002.com/p0/p2")
                 .error().isNotNull().codeEquals(RUNTIME_EXCEPTION);
 
         assertThat(rethinkDbData)
@@ -134,18 +141,20 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock
-                .withLongFetchTimeForAllUrlRequests("http://stress-000000.com")
-                .withLongFetchTimeForUrlRequests("http://stress-000001.com/p0", 1, 1)
+                .withLongFetchTimeForAllUrlRequests("http://a.seed-000000.com")
+                .withLongFetchTimeForUrlRequests("http://a.seed-000001.com/p0", 1, 1)
                 .withLinksPerLevel(linksPerLevel);
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(1);
         assertThat(logServiceMock.crawlLogs.get(0))
                 .hasWarcId()
                 .statusCodeEquals(RETRY_LIMIT_REACHED)
-                .requestedUriEquals("http://stress-000000.com")
+                .requestedUriEquals("http://a.seed-000000.com")
                 .error().isNotNull().codeEquals(RUNTIME_EXCEPTION);
 
         assertThat(rethinkDbData)
@@ -169,14 +178,15 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         int maxHopsFromSeed = 2;
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
-        crawlRunner.setup(seedCount);
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
 
-        Thread.sleep(1000);
         harvesterMock.close();
+//        Thread.sleep(1000);
         harvesterMock = new HarvesterMock(settings).start();
 
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished(60, TimeUnit.SECONDS);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -202,11 +212,12 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
-        dnsResolverMock.withFetchErrorForHostRequests("stress-000000.com", 1, 1);
+        dnsResolverMock.withFetchErrorForHostRequests("a.seed-000000.com", 1, 1);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -232,11 +243,12 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
-        dnsResolverMock.withFetchErrorForHostRequests("stress-000000.com", 1, 2);
+        dnsResolverMock.withFetchErrorForHostRequests("a.seed-000000.com", 1, 2);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -262,17 +274,18 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
-        dnsResolverMock.withFetchErrorForAllHostRequests("stress-000000.com");
+        dnsResolverMock.withFetchErrorForAllHostRequests("a.seed-000000.com");
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(1);
         assertThat(logServiceMock.crawlLogs.get(0))
                 .hasWarcId()
                 .statusCodeEquals(RETRY_LIMIT_REACHED)
-                .requestedUriEquals("http://stress-000000.com")
+                .requestedUriEquals("http://a.seed-000000.com")
                 .error().isNotNull().codeEquals(FAILED_DNS);
 
         assertThat(rethinkDbData)
@@ -297,17 +310,18 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
-        dnsResolverMock.withExceptionForAllHostRequests("stress-000000.com");
+        dnsResolverMock.withExceptionForAllHostRequests("a.seed-000000.com");
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(1);
         assertThat(logServiceMock.crawlLogs.get(0))
                 .hasWarcId()
                 .statusCodeEquals(RETRY_LIMIT_REACHED)
-                .requestedUriEquals("http://stress-000000.com")
+                .requestedUriEquals("http://a.seed-000000.com")
                 .error().isNotNull().codeEquals(FAILED_DNS);
 
         assertThat(rethinkDbData)
@@ -333,42 +347,43 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
         robotsEvaluatorMock
-                .withFetchDenialForUrl("http://stress-000000.com")
-                .withFetchDenialForUrl("http://stress-000001.com/p0")
-                .withFetchDenialForUrl("http://stress-000001.com/p1")
-                .withExceptionForUrl("http://stress-000001.com/p2");
+                .withFetchDenialForUrl("http://a.seed-000000.com")
+                .withFetchDenialForUrl("http://a.seed-000001.com/p0")
+                .withFetchDenialForUrl("http://a.seed-000001.com/p1")
+                .withExceptionForUrl("http://a.seed-000001.com/p2");
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(3)
                 .hasRequestSatisfying(r -> {
                     assertThat(r)
                             .hasWarcId()
                             .statusCodeEquals(PRECLUDED_BY_ROBOTS)
-                            .requestedUriEquals("http://stress-000000.com")
+                            .requestedUriEquals("http://a.seed-000000.com")
                             .error().isNotNull().codeEquals(PRECLUDED_BY_ROBOTS);
                 })
                 .hasRequestSatisfying(r -> {
                     assertThat(r)
                             .hasWarcId()
                             .statusCodeEquals(PRECLUDED_BY_ROBOTS)
-                            .requestedUriEquals("http://stress-000001.com/p0")
+                            .requestedUriEquals("http://a.seed-000001.com/p0")
                             .error().isNotNull().codeEquals(PRECLUDED_BY_ROBOTS);
                 })
                 .hasRequestSatisfying(r -> {
                     assertThat(r)
                             .hasWarcId()
                             .statusCodeEquals(PRECLUDED_BY_ROBOTS)
-                            .requestedUriEquals("http://stress-000001.com/p1")
+                            .requestedUriEquals("http://a.seed-000001.com/p1")
                             .error().isNotNull().codeEquals(PRECLUDED_BY_ROBOTS);
                 });
 
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
-                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(jes.getId(), j -> {
+                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(crawl.getStatus().getId(), j -> {
             assertThat(j)
                     .hasState(JobExecutionStatus.State.FINISHED)
                     .hasStartTime(true)
@@ -379,8 +394,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                     .documentsRetriedEquals(0)
                     .documentsOutOfScopeEquals(9);
         });
-        String crawlExecutionId1 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(0).getId()).get().getId();
-        String crawlExecutionId2 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(1).getId()).get().getId();
+        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
+        String crawlExecutionId2 = seeds.get(1).getCrawlExecution(job).get().getId();
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
                 .hasEntrySatisfying(crawlExecutionId1, s -> {
@@ -427,19 +442,20 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         scopeCheckerServiceMock
                 .withMaxHopsFromSeed(maxHopsFromSeed)
-                .withDenialForUrlRequests("http://stress-000000.com/p0", 2, 2);
+                .withDenialForUrlRequests("http://a.seed-000000.com/p0", 2, 2);
         harvesterMock.withLinksPerLevel(linksPerLevel);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
-                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(jes.getId(), j -> {
+                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(crawl.getStatus().getId(), j -> {
             assertThat(j)
                     .hasState(JobExecutionStatus.State.FINISHED)
                     .hasStartTime(true)
@@ -458,7 +474,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                     .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
                     .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
         });
-        String crawlExecutionId1 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(0).getId()).get().getId();
+        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
                 .hasEntrySatisfying(crawlExecutionId1, s -> {
@@ -494,14 +510,15 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
 
         // Abort the first execution as soon as it is created
-        String crawlExecutionId = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(0).getId()).get().getId();
+        String crawlExecutionId = seeds.get(0).getCrawlExecution(job).get().getId();
         DbService.getInstance().getExecutionsAdapter().setCrawlExecutionStateAborted(crawlExecutionId, CrawlExecutionStatus.State.ABORTED_MANUAL);
 
-        crawlRunner.awaitCrawlFinished();
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -523,7 +540,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 });
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1)
-                .hasEntrySatisfying(jes.getId(), s -> {
+                .hasEntrySatisfying(crawl.getStatus().getId(), s -> {
                     assertThat(s)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -555,16 +572,17 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
 
-        String crawlExecutionId1 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(0).getId()).get().getId();
-        String crawlExecutionId2 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(1).getId()).get().getId();
-        String crawlExecutionId3 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(2).getId()).get().getId();
-        String crawlExecutionId4 = crawlRunner.crawlExecutions.get(crawlRunner.seeds.get(3).getId()).get().getId();
+        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
+        String crawlExecutionId2 = seeds.get(1).getCrawlExecution(job).get().getId();
+        String crawlExecutionId3 = seeds.get(2).getCrawlExecution(job).get().getId();
+        String crawlExecutionId4 = seeds.get(3).getCrawlExecution(job).get().getId();
 
         // Abort the first execution as soon as it is fetching
-        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId1);
                     if (ces.getState() == CrawlExecutionStatus.State.FETCHING) {
@@ -576,7 +594,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
 
         // Abort the second execution as soon as it is sleeping
-        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId2);
                     if (ces.getState() == CrawlExecutionStatus.State.SLEEPING) {
@@ -588,7 +606,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
 
         // Abort the third execution as soon as it is finished
-        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId3);
                     if (ces.getState() == CrawlExecutionStatus.State.FINISHED) {
@@ -599,7 +617,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 });
 
         // Wait for crawl to finish
-        crawlRunner.awaitCrawlFinished();
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -661,7 +679,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 });
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1)
-                .hasEntrySatisfying(jes.getId(), j -> {
+                .hasEntrySatisfying(crawl.getStatus().getId(), j -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -702,24 +720,25 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         harvesterMock.withLinksPerLevel(linksPerLevel);
         dnsResolverMock.withSimulatedLookupTimeMs(300);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
 
         // Abort the first execution as soon as one seed is completed
         await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     try (Jedis jedis = jedisPool.getResource()) {
-                        Map<String, String> f = jedis.hgetAll(CrawlQueueManager.JOB_EXECUTION_PREFIX + jes.getId());
+                        Map<String, String> f = jedis.hgetAll(CrawlQueueManager.JOB_EXECUTION_PREFIX + crawl.getStatus().getId());
                         if (!f.getOrDefault("FINISHED", "0").equals("0")) {
                             return true;
                         }
                         return false;
                     }
                 });
-        DbService.getInstance().getExecutionsAdapter().setJobExecutionStateAborted(jes.getId());
+        DbService.getInstance().getExecutionsAdapter().setJobExecutionStateAborted(crawl.getStatus().getId());
 
         // Wait for crawl to finish
-        crawlRunner.awaitCrawlFinished();
+        crawlRunner.awaitCrawlFinished(crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -729,7 +748,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 .crawlExecutionStatuses().hasSize(seedCount);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1)
-                .hasEntrySatisfying(jes.getId(), j -> {
+                .hasEntrySatisfying(crawl.getStatus().getId(), j -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.ABORTED_MANUAL)
                             .hasStartTime(true)
@@ -773,9 +792,10 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 .withFetchTime(200);
         dnsResolverMock.withSimulatedLookupTimeMs(300);
 
-        crawlRunner.setup(seedCount, CrawlLimitsConfig.newBuilder().setMaxDurationS(5).build());
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished();
+        ConfigObject job = crawlRunner.genJob("job1", CrawlLimitsConfig.newBuilder().setMaxDurationS(5).build());
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(2, TimeUnit.MINUTES, crawl);
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -785,7 +805,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 .crawlExecutionStatuses().hasSize(20);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1)
-                .hasEntrySatisfying(jes.getId(), j -> {
+                .hasEntrySatisfying(crawl.getStatus().getId(), j -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
