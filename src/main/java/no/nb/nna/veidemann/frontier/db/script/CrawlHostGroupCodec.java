@@ -59,8 +59,9 @@ public class CrawlHostGroupCodec {
         encoded.add(RETRY_DELAY_SECONDS);
         encoded.add(String.valueOf(chg.getRetryDelaySeconds()));
 
-        encoded.add(QUEUED_URI_COUNT);
-        encoded.add(String.valueOf(chg.getQueuedUriCount()));
+        // Do not encode QUEUED_URI_COUNT (qc) since that value is manipulated with Redis HINCR
+        // encoded.add(QUEUED_URI_COUNT);
+        // encoded.add(String.valueOf(chg.getQueuedUriCount()));
 
         encoded.add(CURRENT_URI_ID);
         encoded.add(chg.getCurrentUriId());
@@ -82,7 +83,8 @@ public class CrawlHostGroupCodec {
         encoded.put(DELAY_FACTOR, String.valueOf(chg.getDelayFactor()));
         encoded.put(MAX_RETRIES, String.valueOf(chg.getMaxRetries()));
         encoded.put(RETRY_DELAY_SECONDS, String.valueOf(chg.getRetryDelaySeconds()));
-        encoded.put(QUEUED_URI_COUNT, String.valueOf(chg.getQueuedUriCount()));
+        // Do not encode QUEUED_URI_COUNT (qc) since that value is manipulated with Redis HINCR
+        // encoded.put(QUEUED_URI_COUNT, String.valueOf(chg.getQueuedUriCount()));
         encoded.put(CURRENT_URI_ID, chg.getCurrentUriId());
         encoded.put(SESSION_TOKEN, chg.getSessionToken());
         encoded.put(FETCH_START_TIME_STAMP, Long.toString(Timestamps.toMillis(chg.getFetchStartTimeStamp())));
