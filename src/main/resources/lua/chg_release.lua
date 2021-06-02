@@ -22,6 +22,8 @@ if storedSessionToken ~= sessionToken then
     error("Trying to release chg '" .. chgId .. "' with sessionToken '" .. sessionToken .. "', but chg's sessionToken was '" .. storedSessionToken .. "'")
 end
 
+local queueCount = redis.call('HGET', chgKey, "qc")
+
 -- Remove chg from busyKey
 if redis.call('ZREM', busyKey, chgId) == 1 then
     -- Remove session token
@@ -31,13 +33,9 @@ if redis.call('ZREM', busyKey, chgId) == 1 then
     end
 
     -- Check queue count from chgKey.
-    local queueCount = redis.call('HGET', chgKey, "qc")
     if (not queueCount) or (tonumber(queueCount) <= 0) then
         -- If queue count is zero there is no need for chg, remove it.
         redis.call('DEL', chgKey)
-        --redis.call('LREM', readyKey, 0, chgId)
-        --redis.call('ZREM', busyKey, chgId)
-        --redis.call('ZREM', waitKey, chgId)
     else
         -- Otherwise add chg to waitKey.
         redis.call('ZADD', waitKey, waitTime, chgId)
@@ -45,3 +43,5 @@ if redis.call('ZREM', busyKey, chgId) == 1 then
         redis.call('HDEL', chgKey, "df", "rd", "mi", "ma", "mr", "u", "st", "ts")
     end
 end
+
+return queueCount

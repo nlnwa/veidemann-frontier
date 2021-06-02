@@ -219,7 +219,7 @@ public class Preconditions {
             try {
                 if (isAllowed) {
                     if (changedCrawlHostGroup) {
-                        frontier.getCrawlQueueManager().addToCrawlHostGroup(qUri.getQueuedUri(), false);
+                        frontier.getCrawlQueueManager().addToCrawlHostGroup(qUri.getQueuedUri());
                         future.set(PreconditionState.RETRY);
                     } else {
                         future.set(PreconditionState.OK);

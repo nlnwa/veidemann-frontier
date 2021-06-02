@@ -42,6 +42,8 @@ public class ChgNextScript extends RedisJob<CrawlHostGroup> {
                     }
                 }
                 return null;
+            } else {
+                LOG.trace("BLPOP {} {}, RESULT: {}", waitForReadyTimeout, CHG_READY_KEY, res);
             }
             String chgId = res.get(1);
             String chgKey = CHG_PREFIX + chgId;
