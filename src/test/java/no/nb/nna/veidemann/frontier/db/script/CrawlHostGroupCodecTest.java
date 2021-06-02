@@ -18,7 +18,7 @@ class CrawlHostGroupCodecTest {
     void encodeList() {
         CrawlHostGroup chg = CrawlHostGroup.newBuilder().build();
         List<String> result = CrawlHostGroupCodec.encodeList(chg);
-        List<String> expectedResult = ImmutableList.of("mi", "0", "ma", "0", "df", "0.0", "mr", "0", "rd", "0", "qc", "0", "u", "", "st", "", "ts", "0");
+        List<String> expectedResult = ImmutableList.of("mi", "0", "ma", "0", "df", "0.0", "mr", "0", "rd", "0", "u", "", "st", "", "ts", "0");
         assertThat(result).isEqualTo(expectedResult);
 
         chg = CrawlHostGroup.newBuilder()
@@ -34,7 +34,7 @@ class CrawlHostGroupCodecTest {
                 .setFetchStartTimeStamp(Timestamps.fromMillis(5))
                 .build();
         result = CrawlHostGroupCodec.encodeList(chg);
-        expectedResult = ImmutableList.of("mi", "1000", "ma", "3000", "df", "1.5", "mr", "3", "rd", "60", "qc", "45", "u", "uri1", "st", "token", "ts", "5");
+        expectedResult = ImmutableList.of("mi", "1000", "ma", "3000", "df", "1.5", "mr", "3", "rd", "60", "u", "uri1", "st", "token", "ts", "5");
         assertThat(result).isEqualTo(expectedResult);
     }
 
@@ -81,7 +81,6 @@ class CrawlHostGroupCodecTest {
                 .put("df", "0.0")
                 .put("mr", "0")
                 .put("rd", "0")
-                .put("qc", "0")
                 .put("u", "")
                 .put("st", "")
                 .put("ts", "0")
@@ -107,7 +106,6 @@ class CrawlHostGroupCodecTest {
                 .put("df", "1.5")
                 .put("mr", "3")
                 .put("rd", "60")
-                .put("qc", "45")
                 .put("u", "uri1")
                 .put("st", "token")
                 .put("ts", "5")

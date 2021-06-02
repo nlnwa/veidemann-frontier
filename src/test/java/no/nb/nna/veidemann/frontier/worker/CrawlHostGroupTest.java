@@ -108,7 +108,7 @@ public class CrawlHostGroupTest {
 
             ChgAddScript chgAddScript = new ChgAddScript();
 
-            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, false, 1000);
+            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, 1000);
             assertThat(redisData)
                     .hasQueueTotalCount(1)
                     .crawlExecutionQueueCounts().hasNumberOfElements(1).hasQueueCount(eId1, 1);
@@ -121,7 +121,7 @@ public class CrawlHostGroupTest {
             assertThat(redisData).readyQueue().hasNumberOfElements(0);
 
 
-            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp2, false, 1000);
+            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp2, 1000);
             assertThat(redisData)
                     .hasQueueTotalCount(2)
                     .crawlExecutionQueueCounts().hasNumberOfElements(1).hasQueueCount(eId1, 2);
@@ -134,7 +134,7 @@ public class CrawlHostGroupTest {
             assertThat(redisData).readyQueue().hasNumberOfElements(0);
 
 
-            chgAddScript.run(ctx, chgId1, eId2, earliestFetchTimestamp2, false, 1000);
+            chgAddScript.run(ctx, chgId1, eId2, earliestFetchTimestamp2, 1000);
             assertThat(redisData)
                     .hasQueueTotalCount(3)
                     .crawlExecutionQueueCounts().hasNumberOfElements(2).hasQueueCount(eId1, 2).hasQueueCount(eId2, 1);
@@ -147,7 +147,7 @@ public class CrawlHostGroupTest {
             assertThat(redisData).readyQueue().hasNumberOfElements(0);
 
 
-            chgAddScript.run(ctx, chgId2, eId2, earliestFetchTimestamp2, false, 1000);
+            chgAddScript.run(ctx, chgId2, eId2, earliestFetchTimestamp2, 1000);
             assertThat(redisData)
                     .hasQueueTotalCount(4)
                     .crawlExecutionQueueCounts().hasNumberOfElements(2).hasQueueCount(eId1, 2).hasQueueCount(eId2, 2);
@@ -180,10 +180,10 @@ public class CrawlHostGroupTest {
             ChgDelayedQueueScript chgDelayedQueueScript = new ChgDelayedQueueScript();
 
             // Add some CrawlHostGroups
-            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, false, 1000);
-            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp2, false, 1000);
-            chgAddScript.run(ctx, chgId1, eId2, earliestFetchTimestamp2, false, 1000);
-            chgAddScript.run(ctx, chgId2, eId2, earliestFetchTimestamp2, false, 1000);
+            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, 1000);
+            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp2, 1000);
+            chgAddScript.run(ctx, chgId1, eId2, earliestFetchTimestamp2, 1000);
+            chgAddScript.run(ctx, chgId2, eId2, earliestFetchTimestamp2, 1000);
 
             // Check expected state
             assertThat(redisData)
@@ -255,11 +255,11 @@ public class CrawlHostGroupTest {
             ChgReleaseScript chgReleaseScript = new ChgReleaseScript();
 
             // Add some CrawlHostGroups and move to ready
-            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, false, 1000);
-            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, false, 1000);
-            chgAddScript.run(ctx, chgId1, eId2, earliestFetchTimestamp2, false, 1000);
-            chgAddScript.run(ctx, chgId2, eId3, earliestFetchTimestamp1, false, 1000);
-            chgAddScript.run(ctx, chgId3, eId4, earliestFetchTimestamp2, false, 1000);
+            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, 1000);
+            chgAddScript.run(ctx, chgId1, eId1, earliestFetchTimestamp1, 1000);
+            chgAddScript.run(ctx, chgId1, eId2, earliestFetchTimestamp2, 1000);
+            chgAddScript.run(ctx, chgId2, eId3, earliestFetchTimestamp1, 1000);
+            chgAddScript.run(ctx, chgId3, eId4, earliestFetchTimestamp2, 1000);
             Long moved = chgDelayedQueueScript.run(ctx, CHG_WAIT_KEY, CHG_READY_KEY);
 
             // Check expected state
@@ -368,7 +368,7 @@ public class CrawlHostGroupTest {
             assertThat(redisData).readyQueue().hasNumberOfElements(0);
             assertThat(redisData).sessionTokens().hasNumberOfElements(1).hasCrawlHostId("sess1", chgId1);
 
-            CrawlHostGroup result = chgGetScript.run(ctx,chgId1);
+            CrawlHostGroup result = chgGetScript.run(ctx, chgId1);
             assertThat(result).isEqualTo(chg1);
 
             chgReleaseScript.run(ctx, chgId1, "sess1", 1999);

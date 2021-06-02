@@ -5,6 +5,8 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.RunningCrawl;
 import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.SeedAndExecutions;
+import org.assertj.core.api.Assertions;
+import org.assertj.core.presentation.StandardRepresentation;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -28,8 +30,27 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
     int maxHopsFromSeed = 1;
     int numberOfJobs = 40;
 
+    public class CustomRepresentation extends StandardRepresentation {
+        // override fallbackToStringOf to handle Example formatting
+        @Override
+        public String fallbackToStringOf(Object o) {
+            if (o instanceof JobExecutionStatus) {
+                JobExecutionStatus jes = (JobExecutionStatus) o;
+                return jes.getId();
+            }
+            if (o instanceof CrawlExecutionStatus) {
+                CrawlExecutionStatus ces = (CrawlExecutionStatus) o;
+                return ces.getId();
+            }
+            // fallback to default formatting.
+            return super.fallbackToStringOf(o);
+        }
+    }
+
     @Test
     public void testSameSeedsInParallellJobs() throws Exception {
+        Assertions.useRepresentation(new CustomRepresentation());
+
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
 
@@ -48,18 +69,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(numberOfJobs)
-                .hasEntrySatisfying(crawls[1].getStatus().getId(), j -> {
-                    assertThat(j)
-                            .hasState(JobExecutionStatus.State.FINISHED)
-                            .hasStartTime(true)
-                            .hasEndTime(true)
-                            .documentsCrawledEquals(2 * seedCount)
-                            .documentsDeniedEquals(0)
-                            .documentsFailedEquals(0)
-                            .documentsRetriedEquals(0)
-                            .documentsOutOfScopeEquals(seedCount);
-                })
-                .hasEntrySatisfying(crawls[2].getStatus().getId(), j -> {
+                .allSatisfy((id, j) -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -70,11 +80,10 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                             .documentsRetriedEquals(0)
                             .documentsOutOfScopeEquals(seedCount);
                 });
-        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(jobs[1]).get().getId();
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount * numberOfJobs)
-                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                .allSatisfy((id, s) -> {
                     assertThat(s)
                             .hasState(CrawlExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -124,18 +133,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(numberOfJobs)
-                .hasEntrySatisfying(crawls[1].getStatus().getId(), j -> {
-                    assertThat(j)
-                            .hasState(JobExecutionStatus.State.FINISHED)
-                            .hasStartTime(true)
-                            .hasEndTime(true)
-                            .documentsCrawledEquals(2 * seedCount)
-                            .documentsDeniedEquals(0)
-                            .documentsFailedEquals(0)
-                            .documentsRetriedEquals(0)
-                            .documentsOutOfScopeEquals(seedCount);
-                })
-                .hasEntrySatisfying(crawls[2].getStatus().getId(), j -> {
+                .allSatisfy((id, j) -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -150,7 +148,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount * numberOfJobs)
-                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                .allSatisfy((id, s) -> {
                     assertThat(s)
                             .hasState(CrawlExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -202,18 +200,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(numberOfJobs)
-                .hasEntrySatisfying(crawls[1].getStatus().getId(), j -> {
-                    assertThat(j)
-                            .hasState(JobExecutionStatus.State.FINISHED)
-                            .hasStartTime(true)
-                            .hasEndTime(true)
-                            .documentsCrawledEquals(2 * seedCount)
-                            .documentsDeniedEquals(0)
-                            .documentsFailedEquals(0)
-                            .documentsRetriedEquals(0)
-                            .documentsOutOfScopeEquals(seedCount);
-                })
-                .hasEntrySatisfying(crawls[2].getStatus().getId(), j -> {
+                .allSatisfy((id, j) -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -228,7 +215,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount * numberOfJobs)
-                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                .allSatisfy((id, s) -> {
                     assertThat(s)
                             .hasState(CrawlExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -275,18 +262,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(numberOfJobs)
-                .hasEntrySatisfying(crawls[1].getStatus().getId(), j -> {
-                    assertThat(j)
-                            .hasState(JobExecutionStatus.State.FINISHED)
-                            .hasStartTime(true)
-                            .hasEndTime(true)
-                            .documentsCrawledEquals(2 * seedCount)
-                            .documentsDeniedEquals(0)
-                            .documentsFailedEquals(0)
-                            .documentsRetriedEquals(0)
-                            .documentsOutOfScopeEquals(seedCount);
-                })
-                .hasEntrySatisfying(crawls[2].getStatus().getId(), j -> {
+                .allSatisfy((id, j) -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -301,7 +277,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount * numberOfJobs)
-                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                .allSatisfy((id, s) -> {
                     assertThat(s)
                             .hasState(CrawlExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -344,18 +320,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(numberOfJobs)
-                .hasEntrySatisfying(crawls[1].getStatus().getId(), j -> {
-                    assertThat(j)
-                            .hasState(JobExecutionStatus.State.FINISHED)
-                            .hasStartTime(true)
-                            .hasEndTime(true)
-                            .documentsCrawledEquals(2 * seedCount)
-                            .documentsDeniedEquals(0)
-                            .documentsFailedEquals(0)
-                            .documentsRetriedEquals(0)
-                            .documentsOutOfScopeEquals(seedCount);
-                })
-                .hasEntrySatisfying(crawls[2].getStatus().getId(), j -> {
+                .allSatisfy((id, j) -> {
                     assertThat(j)
                             .hasState(JobExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -370,7 +335,7 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount * numberOfJobs)
-                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                .allSatisfy((id, s) -> {
                     assertThat(s)
                             .hasState(CrawlExecutionStatus.State.FINISHED)
                             .hasStartTime(true)

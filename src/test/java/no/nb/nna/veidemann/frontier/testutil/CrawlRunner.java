@@ -17,6 +17,7 @@
 package no.nb.nna.veidemann.frontier.testutil;
 
 import com.google.common.util.concurrent.SettableFuture;
+import com.rethinkdb.net.Cursor;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import no.nb.nna.veidemann.api.config.v1.ConfigObject;
@@ -31,13 +32,20 @@ import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus.State;
 import no.nb.nna.veidemann.commons.db.ConfigAdapter;
+import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbException;
+import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.db.ExecutionsAdapter;
 import no.nb.nna.veidemann.commons.util.ApiTools;
+import no.nb.nna.veidemann.db.RethinkDbConnection;
+import no.nb.nna.veidemann.db.Tables;
+import no.nb.nna.veidemann.db.initializer.RethinkDbInitializer;
 import no.nb.nna.veidemann.frontier.settings.Settings;
+import org.assertj.core.description.Description;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.time.Duration;
@@ -54,6 +62,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import static com.rethinkdb.RethinkDB.r;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -62,6 +71,7 @@ public class CrawlRunner implements AutoCloseable {
 
     ConfigAdapter c = DbService.getInstance().getConfigAdapter();
     ExecutionsAdapter e = DbService.getInstance().getExecutionsAdapter();
+    RethinkDbConnection conn = ((RethinkDbInitializer) DbService.getInstance().getDbInitializer()).getDbConnection();
     private final ManagedChannel frontierChannel;
     private final FrontierGrpc.FrontierBlockingStub frontierStub;
     private final RethinkDbData rethinkDbData;
@@ -210,7 +220,7 @@ public class CrawlRunner implements AutoCloseable {
                     List<RunningCrawl> statuses = Arrays.stream(runningCrawls)
                             .map(j -> {
                                 try {
-                                    j.jes = DbService.getInstance().getExecutionsAdapter().getJobExecutionStatus(j.jes.getId());
+                                    j.jes = e.getJobExecutionStatus(j.jes.getId());
                                     return j;
                                 } catch (DbException e) {
                                     throw new RuntimeException(e);
@@ -232,11 +242,31 @@ public class CrawlRunner implements AutoCloseable {
                                 }
                             }).collect(Collectors.toList());
 
-                    if (statuses.stream().allMatch(j -> State.RUNNING != j.jes.getState()) && rethinkDbData.getQueuedUris().isEmpty() && jedisPool.getResource().keys("*").size() <= 1) {
+                    if (statuses.stream().allMatch(j -> State.RUNNING != j.jes.getState())
+                            && rethinkDbData.getQueuedUris().isEmpty()
+                            && jedisPool.getResource().keys("*").size() <= 1) {
                         return true;
                     }
                     if (statuses.stream().anyMatch(j -> State.RUNNING == j.jes.getState())) {
-                        assertThat(emptyChgKeysCount).as("Crawl is not finished, but redis chg keys are missing").hasValueLessThan(3);
+                        Description desc = new Description() {
+                            @Override
+                            public String value() {
+                                StringBuilder sb = new StringBuilder();
+                                try (Jedis jedis = jedisPool.getResource()) {
+                                    sb.append(String.format("Crawl is not finished, but redis chg keys are missing.\nRemaining REDIS keys: %s\n Queue count total: %s",
+                                            jedis.keys("*"),
+                                            jedis.get("QCT")));
+                                    Cursor c = conn.exec("db-getQueuedUris", r.table(Tables.URI_QUEUE.name));
+                                    c.forEach(v -> sb.append("\nURi in RethinkDB queue: ").append(v));
+                                } catch (DbConnectionException dbConnectionException) {
+                                    dbConnectionException.printStackTrace();
+                                } catch (DbQueryException dbQueryException) {
+                                    dbQueryException.printStackTrace();
+                                }
+                                return sb.toString();
+                            }
+                        };
+                        assertThat(emptyChgKeysCount).as(desc).withFailMessage("").hasValueLessThan(3);
                     }
                     LOG.debug("Still running: {}", statuses.size());
                     return false;
