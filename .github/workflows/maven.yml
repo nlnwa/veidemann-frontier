@@ -43,6 +43,6 @@ jobs:
         # Strip "v" prefix from tag name
         [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
         # Use Docker `latest` tag convention
-        [ "$VERSION" == "main" ] && VERSION=latest
+        [ "$VERSION" == "master" ] && VERSION=latest
         echo VERSION=$VERSION
         ./mvnw -B -Pdocker-build-and-push -Ddocker.tag="$VERSION" install;
