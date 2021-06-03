@@ -181,7 +181,7 @@ public class PostFetchHandler {
                     forEach(span, frontier.getPostFetchThreadPool(), outlinkQueue, outlink -> {
                         try {
                             OutlinkHandler.processOutlink(frontier, status, qUri, outlink, scriptParameters, scopeScriptRef);
-                        } catch (DbException e) {
+                        } catch (DbException | IllegalStateException e) {
                             // An error here indicates problems with DB communication. No idea how to handle that yet.
                             LOG.error("Error processing outlink: {}", e.toString(), e);
                         } catch (Throwable e) {

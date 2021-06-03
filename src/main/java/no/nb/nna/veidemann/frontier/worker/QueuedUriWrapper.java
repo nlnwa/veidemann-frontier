@@ -293,7 +293,7 @@ public class QueuedUriWrapper {
         wrapped.clearAnnotation();
 
         QueuedUri q = wrapped.build();
-        q = frontier.getCrawlQueueManager().addToCrawlHostGroup(q, false);
+        q = frontier.getCrawlQueueManager().addToCrawlHostGroup(q);
         wrapped = q.toBuilder();
 
         oldEarliestFetchTimestamp = null;

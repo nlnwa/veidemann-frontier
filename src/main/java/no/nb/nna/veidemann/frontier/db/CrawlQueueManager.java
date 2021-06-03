@@ -45,6 +45,7 @@ import no.nb.nna.veidemann.frontier.worker.PreFetchHandler;
 import no.nb.nna.veidemann.frontier.worker.QueuedUriWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.ScanParams;
@@ -129,7 +130,10 @@ public class CrawlQueueManager implements AutoCloseable {
                 () -> getPrefetchHandler(), p -> releaseCrawlHostGroup(p.getQueuedUri().getCrawlHostGroupId(), "", RESCHEDULE_DELAY));
     }
 
-    public QueuedUri addToCrawlHostGroup(QueuedUri qUri, boolean attemptToSetAsBusy) throws DbException {
+    public QueuedUri addToCrawlHostGroup(QueuedUri qUri) throws DbException {
+        MDC.put("eid", qUri.getExecutionId());
+        MDC.put("uri", qUri.getUri());
+
         Objects.requireNonNull(qUri.getCrawlHostGroupId(), "CrawlHostGroupId cannot be null");
         Objects.requireNonNull(qUri.getPolitenessRef().getId(), "PolitenessId cannot be null");
         if (qUri.getSequence() <= 0L) {
@@ -161,7 +165,7 @@ public class CrawlQueueManager implements AutoCloseable {
             try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
                 uriAddScript.run(ctx, qUri);
                 chgAddScript.run(ctx, qUri.getCrawlHostGroupId(), qUri.getExecutionId(), qUri.getEarliestFetchTimeStamp(),
-                        attemptToSetAsBusy, frontier.getSettings().getBusyTimeout().toMillis());
+                        frontier.getSettings().getBusyTimeout().toMillis());
             }
             return qUri;
         } catch (Exception e) {

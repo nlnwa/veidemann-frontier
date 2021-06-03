@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public class DnsResolverMock implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(DnsResolverMock.class);
-    Pattern seedNumPattern = Pattern.compile("stress-(\\d\\d)(\\d\\d)(\\d\\d).com");
+    Pattern seedNumPattern = Pattern.compile(".+-(\\d\\d)(\\d\\d)(\\d\\d).com");
 
     long simulatedLookupTimeMs = 0L;
 

@@ -1,7 +1,9 @@
 package no.nb.nna.veidemann.frontier.api;
 
 import io.opentracing.mock.MockSpan;
-import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
+import no.nb.nna.veidemann.api.config.v1.ConfigObject;
+import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.RunningCrawl;
+import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.SeedAndExecutions;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -14,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.concurrent.TimeUnit;
 
 @Testcontainers
 @Tag("integration")
@@ -37,9 +38,10 @@ public class TracerTest extends no.nb.nna.veidemann.frontier.testutil.AbstractIn
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
 
-        crawlRunner.setup(seedCount);
-        JobExecutionStatus jes = crawlRunner.runCrawl();
-        crawlRunner.awaitCrawlFinished(30, TimeUnit.SECONDS);
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
 
         List<MockSpan> finishedSpans = tracer.finishedSpans();
         class item implements Comparable<item> {

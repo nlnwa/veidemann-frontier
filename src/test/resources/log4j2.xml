@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN" monitorInterval="0">
+    <!--
+        Example filters for logging some lua script invocations.
+        Logger 'no.nb.nna.veidemann.frontier.db.script' must have level TRACE for this to have any effect
+        <MarkerFilter marker="chg_add.lua" onMatch="ACCEPT" onMismatch="NEUTRAL"/>
+        <MarkerFilter marker="chg_release.lua" onMatch="ACCEPT" onMismatch="NEUTRAL"/>
+        <MarkerFilter marker="foo" onMatch="ACCEPT" onMismatch="DENY"/>
+    -->
+
     <Appenders>
         <Console name="Console" target="SYSTEM_OUT">
-            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+            <PatternLayout pattern="%level{length=1} %logger{1}: %msg MDC:%MDC%n"/>
         </Console>
     </Appenders>
     <Loggers>
@@ -10,6 +18,15 @@
             <AppenderRef ref="Console"/>
         </Logger>
         <Logger name="no.nb.nna.veidemann.frontier" level="warn" additivity="false">
+            <AppenderRef ref="Console"/>
+        </Logger>
+        <Logger name="no.nb.nna.veidemann.frontier.db.script" level="warn" additivity="false">
+            <AppenderRef ref="Console"/>
+        </Logger>
+        <Logger name="no.nb.nna.veidemann.frontier.testutil" level="info" additivity="false">
+            <AppenderRef ref="Console"/>
+        </Logger>
+        <Logger name="no.nb.nna.veidemann.frontier.testutil.CrawlRunner" level="warn" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
         <Root level="error">
