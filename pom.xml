@@ -354,14 +354,10 @@
                 <artifactId>jib-maven-plugin</artifactId>
                 <configuration>
                     <to>
-                        <image>docker.io/norsknettarkiv/${project.artifactId}</image>
+                        <image>ghcr.io/nlnwa/${project.artifactId}</image>
                         <tags>
                             <tag>${docker.tag}</tag>
                         </tags>
-                        <auth>
-                            <username>${docker.username}</username>
-                            <password>${docker.password}</password>
-                        </auth>
                     </to>
                     <container>
                         <ports>
