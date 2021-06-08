@@ -37,7 +37,12 @@ public class UriAddScript extends RedisJob<Boolean> {
             String uchgKey = String.format("%s%s",
                     UCHG,
                     chgId);
-            String weight = String.format(Locale.ENGLISH, "%1.2f", qUri.getPriorityWeight());
+            double priorityWeight = qUri.getPriorityWeight();
+            if (qUri.getDiscoveryPath().isEmpty()) {
+                priorityWeight += 100d;
+            }
+            String weight = String.format(Locale.ENGLISH, "%1.2f", priorityWeight);
+
             String eid = qUri.getExecutionId();
             List<String> keys = ImmutableList.of(ueIdKey, uchgKey);
             List<String> args = ImmutableList.of(ueIdVal, weight, eid);
