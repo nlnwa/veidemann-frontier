@@ -130,7 +130,11 @@ public class CrawlQueueWorker implements AutoCloseable {
                             JobExecutionStatus tjes = frontier.getCrawlQueueManager().getTempJobExecutionStatus(ctx, jobExecutionId);
                             try {
                                 conn.exec("db-saveJobExecutionStatus",
-                                        r.table(Tables.JOB_EXECUTIONS.name).get(jobExecutionId).update(ProtoUtils.protoToRethink(tjes)));
+                                        r.table(Tables.JOB_EXECUTIONS.name).get(jobExecutionId).update(doc ->
+                                                r.branch(doc.g("state").match("FINISHED|ABORTED_TIMEOUT|ABORTED_SIZE|ABORTED_MANUAL|FAILED|DIED"),
+                                                        doc,
+                                                        ProtoUtils.protoToRethink(tjes))
+                                        ));
                             } catch (DbException e) {
                                 LOG.warn("Could not update jobExecutionState", e);
                             }

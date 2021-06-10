@@ -38,6 +38,8 @@ public class UriAddScript extends RedisJob<Boolean> {
                     UCHG,
                     chgId);
             double priorityWeight = qUri.getPriorityWeight();
+
+            // If this is a seed, up the priority to ensure it gets out of CREATED state in reasonable time
             if (qUri.getDiscoveryPath().isEmpty()) {
                 priorityWeight += 100d;
             }

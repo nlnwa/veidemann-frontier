@@ -560,9 +560,16 @@ public class CrawlQueueManager implements AutoCloseable {
         return jobExecutionGetScript.run(ctx, jobExecutionId);
     }
 
-    public void updateJobExecutionStatus(String jobExecutionId, State oldState, State newState, CrawlExecutionStatusChangeOrBuilder change) {
+    /**
+     * @param jobExecutionId
+     * @param oldState
+     * @param newState
+     * @param change
+     * @return true if job is running
+     */
+    public Boolean updateJobExecutionStatus(String jobExecutionId, State oldState, State newState, CrawlExecutionStatusChangeOrBuilder change) {
         try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
-            jobExecutionUpdateScript.run(ctx, jobExecutionId, oldState, newState, change);
+            return jobExecutionUpdateScript.run(ctx, jobExecutionId, oldState, newState, change);
         }
     }
 

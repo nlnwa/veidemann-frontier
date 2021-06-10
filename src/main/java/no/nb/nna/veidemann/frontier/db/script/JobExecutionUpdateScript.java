@@ -8,7 +8,7 @@ import java.util.List;
 
 import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.JOB_EXECUTION_PREFIX;
 
-public class JobExecutionUpdateScript extends RedisJob<Void> {
+public class JobExecutionUpdateScript extends RedisJob<Boolean> {
     final LuaScript jobExecutionUpdate;
 
     public JobExecutionUpdateScript() {
@@ -16,8 +16,8 @@ public class JobExecutionUpdateScript extends RedisJob<Void> {
         jobExecutionUpdate = new LuaScript("jobexecution_update.lua");
     }
 
-    public void run(JedisContext ctx, String jobExecutionId, State oldState, State newState, CrawlExecutionStatusChangeOrBuilder change) {
-        execute(ctx, jedis -> {
+    public Boolean run(JedisContext ctx, String jobExecutionId, State oldState, State newState, CrawlExecutionStatusChangeOrBuilder change) {
+        return execute(ctx, jedis -> {
             String key = JOB_EXECUTION_PREFIX + jobExecutionId;
 
             String oState = State.UNDEFINED.name();
@@ -42,8 +42,8 @@ public class JobExecutionUpdateScript extends RedisJob<Void> {
             List<String> args = ImmutableList.of(oState, nState, documentsCrawled, documentsDenied, documentsFailed,
                     documentsOutOfScope, documentsRetried, urisCrawled, bytesCrawled);
 
-            jobExecutionUpdate.runString(jedis, keys, args);
-            return null;
+            Long runningExecutions = (Long) jobExecutionUpdate.runString(jedis, keys, args);
+            return runningExecutions > 0;
         });
     }
 }

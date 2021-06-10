@@ -178,8 +178,8 @@ public class StatusWrapper {
             boolean wasNotEnded = changes.get(0).get("old_val") == null || changes.get(0).get("old_val").get("endTime") == null;
             CrawlExecutionStatus newDoc = ProtoUtils.rethinkToProto(changes.get(0).get("new_val"), CrawlExecutionStatus.class);
 
-            frontier.getCrawlQueueManager().updateJobExecutionStatus(newDoc.getJobExecutionId(), status.getState(), newDoc.getState(), change);
-            if (wasNotEnded && newDoc.hasEndTime()) {
+            Boolean hasRunningExecutions = frontier.getCrawlQueueManager().updateJobExecutionStatus(newDoc.getJobExecutionId(), status.getState(), newDoc.getState(), change);
+            if (!hasRunningExecutions && wasNotEnded && newDoc.hasEndTime()) {
                 updateJobExecution(conn, newDoc.getJobExecutionId());
             }
 
@@ -196,51 +196,42 @@ public class StatusWrapper {
             return;
         }
 
-        // Get a count of still running CrawlExecutions for this execution's JobExecution
-        Long notEndedCount = tjes.getExecutionsStateMap().entrySet().stream()
-                .filter(e -> e.getKey().matches("UNDEFINED|CREATED|FETCHING|SLEEPING"))
-                .map(e -> e.getValue().longValue())
-                .reduce(0L, Long::sum);
+        LOG.debug("JobExecution '{}' finished, saving stats", jobExecutionId);
 
-        // If all CrawlExecutions are done for this JobExectuion, update the JobExecution with end statistics
-        if (notEndedCount == 0) {
-            LOG.debug("JobExecution '{}' finished, saving stats", jobExecutionId);
-
-            // Fetch the JobExecutionStatus object this CrawlExecution is part of
-            JobExecutionStatus jes = conn.executeGet("db-getJobExecutionStatus",
-                    r.table(Tables.JOB_EXECUTIONS.name).get(jobExecutionId),
-                    JobExecutionStatus.class);
-            if (jes == null) {
-                throw new IllegalStateException("Can't find JobExecution: " + jobExecutionId);
-            }
-
-            // Set JobExecution's status to FINISHED if it wasn't already aborted
-            JobExecutionStatus.State state;
-            switch (jes.getState()) {
-                case DIED:
-                case FAILED:
-                case ABORTED_MANUAL:
-                    state = jes.getState();
-                    break;
-                default:
-                    if (jes.getDesiredState() != null && jes.getDesiredState() != JobExecutionStatus.State.UNDEFINED) {
-                        state = jes.getDesiredState();
-                    } else {
-                        state = JobExecutionStatus.State.FINISHED;
-                    }
-                    break;
-            }
-
-            // Update aggregated statistics
-            JobExecutionStatus.Builder jesBuilder = jes.toBuilder()
-                    .setState(state)
-                    .setEndTime(ProtoUtils.getNowTs());
-            jesBuilder.mergeFrom(tjes);
-
-            conn.exec("db-saveJobExecutionStatus",
-                    r.table(Tables.JOB_EXECUTIONS.name).get(jesBuilder.getId()).update(ProtoUtils.protoToRethink(jesBuilder)));
-            frontier.getCrawlQueueManager().removeRedisJobExecution(jobExecutionId);
+        // Fetch the JobExecutionStatus object this CrawlExecution is part of
+        JobExecutionStatus jes = conn.executeGet("db-getJobExecutionStatus",
+                r.table(Tables.JOB_EXECUTIONS.name).get(jobExecutionId),
+                JobExecutionStatus.class);
+        if (jes == null) {
+            throw new IllegalStateException("Can't find JobExecution: " + jobExecutionId);
         }
+
+        // Set JobExecution's status to FINISHED if it wasn't already aborted
+        JobExecutionStatus.State state;
+        switch (jes.getState()) {
+            case DIED:
+            case FAILED:
+            case ABORTED_MANUAL:
+                state = jes.getState();
+                break;
+            default:
+                if (jes.getDesiredState() != null && jes.getDesiredState() != JobExecutionStatus.State.UNDEFINED) {
+                    state = jes.getDesiredState();
+                } else {
+                    state = JobExecutionStatus.State.FINISHED;
+                }
+                break;
+        }
+
+        // Update aggregated statistics
+        JobExecutionStatus.Builder jesBuilder = jes.toBuilder()
+                .setState(state)
+                .setEndTime(ProtoUtils.getNowTs());
+        jesBuilder.mergeFrom(tjes);
+
+        conn.exec("db-saveJobExecutionStatus",
+                r.table(Tables.JOB_EXECUTIONS.name).get(jesBuilder.getId()).update(ProtoUtils.protoToRethink(jesBuilder)));
+        frontier.getCrawlQueueManager().removeRedisJobExecution(jobExecutionId);
     }
 
     public String getId() {

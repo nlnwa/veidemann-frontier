@@ -60,7 +60,7 @@ public class NextUriScript extends RedisJob<NextUriScriptResult> {
             String key = UCHG + chgId;
             String minScore = String.valueOf(Math.random() * maxScore);
             Long matchCount = jedis.zcount(key, minScore, "+inf");
-            long offset = (int) (Math.random() * (matchCount -1));
+            long offset = (int) (Math.random() * (matchCount - 1));
             Set<String> eResult = jedis.zrangeByScore(key, minScore, "+inf", (int) offset, 1);
             if (eResult.isEmpty()) {
                 return new NextUriScriptResult(FutureOptional.empty());
