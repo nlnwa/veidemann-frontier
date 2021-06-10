@@ -1,6 +1,8 @@
 package no.nb.nna.veidemann.frontier.testutil;
 
 import io.opentracing.mock.MockTracer;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
+import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.commons.settings.CommonSettings;
@@ -15,6 +17,8 @@ import no.nb.nna.veidemann.frontier.worker.LogServiceClient;
 import no.nb.nna.veidemann.frontier.worker.OutOfScopeHandlerClient;
 import no.nb.nna.veidemann.frontier.worker.RobotsServiceClient;
 import no.nb.nna.veidemann.frontier.worker.ScopeServiceClient;
+import org.assertj.core.api.Assertions;
+import org.assertj.core.presentation.StandardRepresentation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.slf4j.Logger;
@@ -100,6 +104,8 @@ public class AbstractIntegrationTest {
 
     @BeforeEach
     public void setup() throws DbConnectionException, IOException {
+        Assertions.useRepresentation(new CustomRepresentation());
+
         tracer = new MockTracer();
 
         settings = new Settings();
@@ -189,5 +195,22 @@ public class AbstractIntegrationTest {
 
         jedisPool.getResource().flushAll();
         jedisPool.close();
+    }
+
+    public class CustomRepresentation extends StandardRepresentation {
+        // override fallbackToStringOf to handle Example formatting
+        @Override
+        public String fallbackToStringOf(Object o) {
+            if (o instanceof JobExecutionStatus) {
+                JobExecutionStatus jes = (JobExecutionStatus) o;
+                return jes.getId();
+            }
+            if (o instanceof CrawlExecutionStatus) {
+                CrawlExecutionStatus ces = (CrawlExecutionStatus) o;
+                return ces.getId();
+            }
+            // fallback to default formatting.
+            return super.fallbackToStringOf(o);
+        }
     }
 }

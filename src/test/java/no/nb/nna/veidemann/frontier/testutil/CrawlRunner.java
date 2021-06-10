@@ -49,7 +49,6 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -57,6 +56,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -157,31 +158,43 @@ public class CrawlRunner implements AutoCloseable {
         LOG.info("Generating {} seeds with prefix '{}'", count, hostPrefix);
 
         Set<ConfigRef> jobRefs = Arrays.stream(jobs).map(j -> ApiTools.refForConfig(j)).collect(Collectors.toSet());
-        ArrayList<SeedAndExecutions> seeds = new ArrayList<>();
 
-        for (int i = offset; i < offset + count; i++) {
-            String name = String.format("%s-%06d", hostPrefix, i);
-            String url = String.format("http://%s-%06d.com", hostPrefix, i);
+        CompletionService submitSeedExecutor = new ExecutorCompletionService(ForkJoinPool.commonPool());
+        SeedAndExecutions[] seeds = new SeedAndExecutions[count];
 
-            ConfigObject.Builder entityBuilder = ConfigObject.newBuilder()
-                    .setApiVersion("v1")
-                    .setKind(Kind.crawlEntity);
-            entityBuilder.getMetaBuilder().setName(name);
-            ConfigObject entity = c.saveConfigObject(entityBuilder.build());
+        for (int i = 0; i < count; i++) {
+            int idx = i;
+            String name = String.format("%s-%06d", hostPrefix, i + offset);
+            String url = String.format("http://%s-%06d.com", hostPrefix, i + offset);
 
-            ConfigObject.Builder seedBuilder = ConfigObject.newBuilder()
-                    .setApiVersion("v1")
-                    .setKind(Kind.seed);
-            seedBuilder.getMetaBuilder().setName(url);
-            seedBuilder.getSeedBuilder()
-                    .setEntityRef(ApiTools.refForConfig(entity))
-                    .addAllJobRef(jobRefs);
+            submitSeedExecutor.submit(() -> {
+                ConfigObject.Builder entityBuilder = ConfigObject.newBuilder()
+                        .setApiVersion("v1")
+                        .setKind(Kind.crawlEntity);
+                entityBuilder.getMetaBuilder().setName(name);
+                ConfigObject entity = c.saveConfigObject(entityBuilder.build());
 
-            ConfigObject seed = c.saveConfigObject(seedBuilder.build());
-            seeds.add(new SeedAndExecutions(seed, jobRefs));
+                ConfigObject.Builder seedBuilder = ConfigObject.newBuilder()
+                        .setApiVersion("v1")
+                        .setKind(Kind.seed);
+                seedBuilder.getMetaBuilder().setName(url);
+                seedBuilder.getSeedBuilder()
+                        .setEntityRef(ApiTools.refForConfig(entity))
+                        .addAllJobRef(jobRefs);
+
+                ConfigObject seed = c.saveConfigObject(seedBuilder.build());
+                seeds[idx] = new SeedAndExecutions(seed, jobRefs);
+                return null;
+            });
         }
-        System.out.flush();
-        return seeds;
+        for (int i = 0; i < count; i++) {
+            try {
+                submitSeedExecutor.take();
+            } catch (InterruptedException interruptedException) {
+                interruptedException.printStackTrace();
+            }
+        }
+        return Arrays.asList(seeds);
     }
 
     public RunningCrawl runCrawl(ConfigObject crawlJob, List<SeedAndExecutions> seeds) throws DbException {
