@@ -277,7 +277,7 @@ public class StatusWrapper {
     }
 
     public CrawlExecutionStatus.State getDesiredState() {
-        return getCrawlExecutionStatus().getDesiredState();
+        return status.getDesiredState();
     }
 
     public StatusWrapper setState(CrawlExecutionStatus.State state) {
@@ -358,6 +358,7 @@ public class StatusWrapper {
 
     public CrawlExecutionStatus getCrawlExecutionStatus() {
         if (dirty) {
+            new RuntimeException("CES").printStackTrace();
             throw new IllegalStateException("CES is dirty " + change);
         }
         return status.build();

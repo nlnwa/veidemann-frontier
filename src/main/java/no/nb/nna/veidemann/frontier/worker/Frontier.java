@@ -22,6 +22,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.rethinkdb.RethinkDB;
 import com.rethinkdb.gen.ast.Insert;
+import io.grpc.Status;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import io.opentracing.Scope;
 import io.opentracing.Span;
@@ -62,6 +63,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -157,6 +159,12 @@ public class Frontier implements AutoCloseable {
         Tracer tracer = getTracer();
         Span span = tracer.activeSpan();
 
+        // Check that job is still running before allowing new seeds
+        String jobState = conn.exec(r.table(Tables.JOB_EXECUTIONS.name).get(request.getJobExecutionId()).g("state"));
+        if (jobState.matches("FINISHED|ABORTED_TIMEOUT|ABORTED_SIZE|ABORTED_MANUAL|FAILED|DIED")) {
+            throw Status.FAILED_PRECONDITION.withDescription("Job execution '" + request.getJobExecutionId() + "' has finished").asRuntimeException();
+        }
+
         // Create crawl execution
         StatusWrapper status = StatusWrapper.getStatusWrapper(this,
                 createCrawlExecutionStatus(
@@ -166,14 +174,28 @@ public class Frontier implements AutoCloseable {
 
         LOG.debug("New crawl execution: " + status.getId());
 
-        getAsyncFunctionsThreadPool().submit(() -> {
-            try (Scope scope = tracer.scopeManager().activate(span)) {
-                preprocessAndQueueSeed(request, status);
-            } catch (DbException e) {
-                e.printStackTrace();
+        // Do not process seed if job is aborted
+        if (CrawlExecutionHelpers.isAborted(this, status)) {
+            return status.getCrawlExecutionStatus();
+        }
+
+        try {
+            getAsyncFunctionsThreadPool().submit(() -> {
+                try (Scope scope = tracer.scopeManager().activate(span)) {
+                    preprocessAndQueueSeed(request, status);
+                } catch (DbException e) {
+                    LOG.error(e.toString(), e);
+                }
+            });
+            return status.getCrawlExecutionStatus();
+        } catch (RejectedExecutionException e) {
+            if (getAsyncFunctionsThreadPool().isShutdown()) {
+                status.setEndState(State.FAILED).saveStatus();
+                throw Status.UNAVAILABLE.asRuntimeException();
+            } else {
+                throw e;
             }
-        });
-        return status.getCrawlExecutionStatus();
+        }
     }
 
     public void preprocessAndQueueSeed(CrawlSeedRequest request, StatusWrapper status) throws DbException {

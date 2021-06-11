@@ -17,6 +17,7 @@ package no.nb.nna.veidemann.frontier.api;
 
 import com.google.protobuf.Empty;
 import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import no.nb.nna.veidemann.api.frontier.v1.CountResponse;
@@ -30,6 +31,7 @@ import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.util.concurrent.TimeUnit;
 
@@ -61,10 +63,15 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
 
     @Override
     public void crawlSeed(CrawlSeedRequest request, StreamObserver<CrawlExecutionId> responseObserver) {
+        MDC.clear();
+        MDC.put("uri", request.getSeed().getMeta().getName());
         try {
             CrawlExecutionStatus reply = ctx.getFrontier().scheduleSeed(request);
             responseObserver.onNext(CrawlExecutionId.newBuilder().setId(reply.getId()).build());
             responseObserver.onCompleted();
+        } catch (StatusRuntimeException e) {
+            LOG.error("Crawl seed error: " + e.getMessage());
+            responseObserver.onError(e);
         } catch (Exception e) {
             LOG.error("Crawl seed error: " + e.getMessage(), e);
             Status status = Status.UNKNOWN.withDescription(e.toString());
