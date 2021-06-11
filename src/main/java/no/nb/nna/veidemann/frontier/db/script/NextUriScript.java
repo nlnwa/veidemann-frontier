@@ -57,7 +57,11 @@ public class NextUriScript extends RedisJob<NextUriScriptResult> {
             double maxScore = mResult.iterator().next().getScore();
 
             // Choose weighted random crawl execution
-            Set<String> eResult = jedis.zrangeByScore(UCHG + chgId, String.valueOf(Math.random() * maxScore), "+inf", 0, 1);
+            String key = UCHG + chgId;
+            String minScore = String.valueOf(Math.random() * maxScore);
+            Long matchCount = jedis.zcount(key, minScore, "+inf");
+            long offset = (int) (Math.random() * (matchCount - 1));
+            Set<String> eResult = jedis.zrangeByScore(key, minScore, "+inf", (int) offset, 1);
             if (eResult.isEmpty()) {
                 return new NextUriScriptResult(FutureOptional.empty());
             }

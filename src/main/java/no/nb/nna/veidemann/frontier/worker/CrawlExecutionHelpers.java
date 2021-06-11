@@ -103,7 +103,7 @@ public class CrawlExecutionHelpers {
             case ABORTED_TIMEOUT:
             case ABORTED_SIZE:
                 // Set end state to desired state
-                status.setEndState(status.getDesiredState()).saveStatus();
+                endCrawl(frontier, status, status.getDesiredState());
                 return true;
         }
         return false;

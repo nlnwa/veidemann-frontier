@@ -5,8 +5,6 @@ import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.RunningCrawl;
 import no.nb.nna.veidemann.frontier.testutil.CrawlRunner.SeedAndExecutions;
-import org.assertj.core.api.Assertions;
-import org.assertj.core.presentation.StandardRepresentation;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -30,27 +28,8 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
     int maxHopsFromSeed = 1;
     int numberOfJobs = 40;
 
-    public class CustomRepresentation extends StandardRepresentation {
-        // override fallbackToStringOf to handle Example formatting
-        @Override
-        public String fallbackToStringOf(Object o) {
-            if (o instanceof JobExecutionStatus) {
-                JobExecutionStatus jes = (JobExecutionStatus) o;
-                return jes.getId();
-            }
-            if (o instanceof CrawlExecutionStatus) {
-                CrawlExecutionStatus ces = (CrawlExecutionStatus) o;
-                return ces.getId();
-            }
-            // fallback to default formatting.
-            return super.fallbackToStringOf(o);
-        }
-    }
-
     @Test
     public void testSameSeedsInParallellJobs() throws Exception {
-        Assertions.useRepresentation(new CustomRepresentation());
-
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
 
@@ -95,6 +74,8 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                             .documentsOutOfScopeEquals(1)
                             .currentUriIdCountIsEqualTo(0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -161,6 +142,8 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                             .currentUriIdCountIsEqualTo(0);
                 });
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
         assertThat(redisData)
@@ -211,7 +194,6 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                             .documentsRetriedEquals(0)
                             .documentsOutOfScopeEquals(seedCount);
                 });
-        String crawlExecutionId1 = seeds[1].get(0).getCrawlExecution(jobs[1]).get().getId();
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount * numberOfJobs)
@@ -227,6 +209,8 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                             .documentsOutOfScopeEquals(1)
                             .currentUriIdCountIsEqualTo(0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -290,6 +274,8 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                             .currentUriIdCountIsEqualTo(0);
                 });
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
         assertThat(redisData)
@@ -347,6 +333,8 @@ public class HarvestMultipleJobsTest extends no.nb.nna.veidemann.frontier.testut
                             .documentsOutOfScopeEquals(1)
                             .currentUriIdCountIsEqualTo(0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 

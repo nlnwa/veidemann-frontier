@@ -59,11 +59,10 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                     .documentsRetriedEquals(0)
                     .documentsOutOfScopeEquals(27);
         });
-        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
-                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                .allSatisfy((id, s) -> {
                     assertThat(s)
                             .hasState(CrawlExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -75,6 +74,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                             .documentsOutOfScopeEquals(27)
                             .currentUriIdCountIsEqualTo(0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
 
@@ -122,6 +123,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(redisData)
                 .hasQueueTotalCount(0)
                 .crawlHostGroups().hasNumberOfElements(0);
@@ -160,6 +163,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(redisData)
                 .hasQueueTotalCount(0)
                 .crawlHostGroups().hasNumberOfElements(0);
@@ -182,7 +187,6 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
 
         harvesterMock.close();
-//        Thread.sleep(1000);
         harvesterMock = new HarvesterMock(settings).start();
 
         RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
@@ -192,6 +196,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -224,6 +230,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(redisData)
                 .hasQueueTotalCount(0)
                 .crawlHostGroups().hasNumberOfElements(0);
@@ -254,6 +262,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -291,6 +301,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(redisData)
                 .hasQueueTotalCount(0)
                 .crawlHostGroups().hasNumberOfElements(0);
@@ -326,6 +338,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -423,6 +437,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                             .currentUriIdCountIsEqualTo(0);
                 });
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(redisData)
                 .hasQueueTotalCount(0)
                 .crawlHostGroups().hasNumberOfElements(0);
@@ -474,10 +490,9 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                     .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
                     .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
         });
-        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
-                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                .allSatisfy((id, s) -> {
                     assertThat(s)
                             .hasState(CrawlExecutionStatus.State.FINISHED)
                             .hasStartTime(true)
@@ -489,6 +504,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                             .documentsOutOfScopeEquals(5)
                             .currentUriIdCountIsEqualTo(0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -551,6 +568,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                             .documentsRetriedEquals(0)
                             .documentsOutOfScopeEquals(0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -699,6 +718,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                             .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
                 });
 
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
         assertThat(redisData)
                 .hasQueueTotalCount(0)
                 .crawlHostGroups().hasNumberOfElements(0);
@@ -712,7 +733,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
     @Test
     public void testAbortJobExecution() throws Exception {
-        int seedCount = 20;
+        int seedCount = 200;
         int linksPerLevel = 3;
         int maxHopsFromSeed = 2;
 
@@ -725,7 +746,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
 
         // Abort the first execution as soon as one seed is completed
-        await().pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     try (Jedis jedis = jedisPool.getResource()) {
                         Map<String, String> f = jedis.hgetAll(CrawlQueueManager.JOB_EXECUTION_PREFIX + crawl.getStatus().getId());
@@ -745,7 +766,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
         assertThat(rethinkDbData)
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
-                .crawlExecutionStatuses().hasSize(seedCount);
+                .crawlExecutionStatuses().hasSizeBetween(1, seedCount);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1)
                 .hasEntrySatisfying(crawl.getStatus().getId(), j -> {
@@ -767,6 +788,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                             .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
                             .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
@@ -824,6 +847,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                             .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
                             .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
                 });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)

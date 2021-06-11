@@ -28,6 +28,47 @@ public class RethinkDbDataAssert extends AbstractAssert<RethinkDbDataAssert, Ret
         return this;
     }
 
+    public RethinkDbDataAssert jobStatsMatchesCrawlExecutions() throws DbQueryException, DbConnectionException {
+        for (JobExecutionStatus jb : actual.getJobExecutionStatuses().values()) {
+            JobExecutionStatus.Builder jobExecution = jb.toBuilder();
+            jb.getExecutionsStateMap().entrySet().stream().filter(e -> e.getValue() == 0).forEach(e -> jobExecution.removeExecutionsState(e.getKey()));
+            jobExecution.clearId().clearJobId().clearStartTime().clearEndTime().clearState().clearDesiredState();
+
+            JobExecutionStatus.Builder computedJob = actual.getCrawlExecutionStatuses().values().stream()
+                    .filter(e -> e.getJobExecutionId().equals(jb.getId()))
+                    .map(e -> JobExecutionStatus.newBuilder()
+                            .setDocumentsCrawled(e.getDocumentsCrawled())
+                            .setDocumentsDenied(e.getDocumentsDenied())
+                            .setDocumentsFailed(e.getDocumentsFailed())
+                            .setDocumentsOutOfScope(e.getDocumentsOutOfScope())
+                            .setDocumentsRetried(e.getDocumentsRetried())
+                            .setBytesCrawled(e.getBytesCrawled())
+                            .setUrisCrawled(e.getUrisCrawled())
+                            .putExecutionsState(e.getState().name(), 1)
+                    )
+                    .reduce(JobExecutionStatus.newBuilder(),
+                            (result, j) -> {
+                                result.setDocumentsCrawled(result.getDocumentsCrawled() + j.getDocumentsCrawled())
+                                        .setDocumentsDenied(result.getDocumentsDenied() + j.getDocumentsDenied())
+                                        .setDocumentsFailed(result.getDocumentsFailed() + j.getDocumentsFailed())
+                                        .setDocumentsOutOfScope(result.getDocumentsOutOfScope() + j.getDocumentsOutOfScope())
+                                        .setDocumentsRetried(result.getDocumentsRetried() + j.getDocumentsRetried())
+                                        .setBytesCrawled(result.getBytesCrawled() + j.getBytesCrawled())
+                                        .setUrisCrawled(result.getUrisCrawled() + j.getUrisCrawled());
+                                j.getExecutionsStateMap().forEach((key, value) -> {
+                                    result.putExecutionsState(key, result.getExecutionsStateOrDefault(key, 0) + value);
+                                });
+                                return result;
+                            }
+                    );
+            if (!jobExecution.build().equals(computedJob.build())) {
+                failWithMessage("Expected sum of all stats from crawl executions to match job execution, but did not.\n" +
+                        "Calculated:\n<%s>\nActual:\n<%s>", computedJob, jobExecution);
+            }
+        }
+        return this;
+    }
+
     public MapAssert<String, CrawlExecutionStatus> crawlExecutionStatuses() throws DbException {
         return new MapAssert<>(actual.getCrawlExecutionStatuses());
     }
