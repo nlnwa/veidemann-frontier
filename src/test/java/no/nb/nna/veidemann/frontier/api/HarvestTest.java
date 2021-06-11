@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import redis.clients.jedis.Jedis;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -790,6 +791,74 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 });
 
         assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
+        assertThat(redisData)
+                .hasQueueTotalCount(0)
+                .crawlHostGroups().hasNumberOfElements(0);
+        assertThat(redisData)
+                .crawlExecutionQueueCounts().hasNumberOfElements(0);
+        assertThat(redisData)
+                .sessionTokens().hasNumberOfElements(0);
+        assertThat(redisData)
+                .readyQueue().hasNumberOfElements(0);
+    }
+
+    @Test
+    public void testAbortBigJobExecution() throws Exception {
+        int seedCount = 1000;
+        int linksPerLevel = 3;
+        int maxHopsFromSeed = 2;
+
+        scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
+        harvesterMock.withLinksPerLevel(linksPerLevel);
+
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            String hostPrefix = String.format("a%03d.seed", i);
+            seeds.addAll(crawlRunner.genSeeds(seedCount, hostPrefix, job));
+        }
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+
+        // Abort job as soon as one hundred seeds are sleeping.
+        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.MINUTES)
+                .until(() -> {
+                    try (Jedis jedis = jedisPool.getResource()) {
+                        Map<String, String> f = jedis.hgetAll(CrawlQueueManager.JOB_EXECUTION_PREFIX + crawl.getStatus().getId());
+                        if (Integer.parseInt(f.getOrDefault("SLEEPING", "0")) > 10) {
+                            return true;
+                        }
+                        return false;
+                    }
+                });
+        DbService.getInstance().getExecutionsAdapter().setJobExecutionStateAborted(crawl.getStatus().getId());
+
+        // Wait for crawl to finish
+        crawlRunner.awaitCrawlFinished(5, TimeUnit.MINUTES, crawl);
+
+        assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(0);
+
+        assertThat(rethinkDbData)
+                .hasQueueTotalCount(0)
+                .jobStatsMatchesCrawlExecutions()
+                .jobExecutionStatuses().hasSize(1)
+                .hasEntrySatisfying(crawl.getStatus().getId(), j -> {
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.ABORTED_MANUAL)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledSatisfies(d -> d.isGreaterThan(0))
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .executionsStateCountSatifies(CrawlExecutionStatus.State.ABORTED_MANUAL, d -> d.isGreaterThan(0))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_TIMEOUT, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_SIZE, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FAILED, 0)
+                            .executionsStateCountSatifies(CrawlExecutionStatus.State.CREATED, d -> d.isBetween(0, seedCount))
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
+                });
 
         assertThat(redisData)
                 .hasQueueTotalCount(0)
