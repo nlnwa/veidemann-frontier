@@ -16,9 +16,11 @@
 
 package no.nb.nna.veidemann.frontier.testutil;
 
+import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import io.grpc.stub.ClientCallStreamObserver;
+import io.grpc.Status.Code;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvest;
@@ -26,6 +28,7 @@ import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.frontier.settings.Settings;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,13 +36,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.Delayed;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HarvesterMock implements AutoCloseable {
-    private static final int NUM_HARVESTERS = 200;
+    private static final int NUM_HARVESTERS = 400;
     private static final Logger LOG = LoggerFactory.getLogger(HarvesterMock.class);
 
     public RequestLog requestLog = new RequestLog();
@@ -51,37 +56,58 @@ public class HarvesterMock implements AutoCloseable {
     long pageFetchTimeMs = 10;
     long longPageFetchTimeMs = 5000;
 
-    private final static PageHarvest NEW_PAGE_REQUEST = PageHarvest.newBuilder().setRequestNextPage(true).build();
     private final ManagedChannel frontierChannel;
     private final FrontierGrpc.FrontierStub frontierAsyncStub;
-    private ExecutorService exe;
-    private AtomicBoolean shouldRun = new AtomicBoolean(true);
+    private final FrontierGrpc.FrontierBlockingStub frontierBlockingStub;
+    private ExecutorService nextPageThreads;
+    private ExecutorService pageCompletedThreads;
+    private final AtomicBoolean shouldRun = new AtomicBoolean(true);
+
+    private final DelayQueue<Harvester> idleQueue = new DelayQueue<>();
+    private final DelayQueue<Harvester> fetchQueue = new DelayQueue<>();
+    private final Speed speed = new Speed();
 
     public HarvesterMock(Settings settings) {
         frontierChannel = ManagedChannelBuilder.forAddress("localhost", settings.getApiPort()).usePlaintext().build();
         frontierAsyncStub = FrontierGrpc.newStub(frontierChannel).withWaitForReady();
+        frontierBlockingStub = FrontierGrpc.newBlockingStub(frontierChannel).withWaitForReady();
     }
 
     public HarvesterMock start() {
-        exe = Executors.newFixedThreadPool(NUM_HARVESTERS);
+        nextPageThreads = Executors.newFixedThreadPool(8);
+        pageCompletedThreads = Executors.newFixedThreadPool(16);
         for (int i = 0; i < NUM_HARVESTERS; i++) {
-            exe.submit((Callable<Void>) () -> {
-                Harvester h = new Harvester();
-                while (shouldRun.get()) {
-                    h.harvest();
-                    Thread.sleep(50);
-                }
-                return null;
-            });
+            idleQueue.add(new Harvester());
         }
+        nextPageThreads.submit((Callable<Void>) () -> {
+            while (shouldRun.get()) {
+                try {
+                    nextPageThreads.submit((Runnable) idleQueue.take());
+                } catch (InterruptedException e) {
+                }
+            }
+            return null;
+        });
+        pageCompletedThreads.submit((Callable<Void>) () -> {
+            while (shouldRun.get()) {
+                try {
+                    pageCompletedThreads.submit((Runnable) fetchQueue.take());
+                } catch (InterruptedException e) {
+                }
+            }
+            return null;
+        });
+
         return this;
     }
 
     public void close() throws InterruptedException {
         shouldRun.set(false);
         frontierChannel.shutdownNow().awaitTermination(15, TimeUnit.SECONDS);
-        exe.shutdownNow();
-        exe.awaitTermination(15, TimeUnit.SECONDS);
+        nextPageThreads.shutdownNow();
+        nextPageThreads.awaitTermination(15, TimeUnit.SECONDS);
+        pageCompletedThreads.shutdownNow();
+        pageCompletedThreads.awaitTermination(15, TimeUnit.SECONDS);
     }
 
     public HarvesterMock withFetchTime(long millis) {
@@ -134,45 +160,94 @@ public class HarvesterMock implements AutoCloseable {
         return this;
     }
 
-    private class Harvester {
-        ClientCallStreamObserver<PageHarvest> requestObserver;
-        CountDownLatch lock;
+    private class Harvester implements Delayed, Runnable {
+        long delay;
+        long startTime;
+        PageHarvestSpec pageHarvestSpec;
 
-        public void harvest() throws InterruptedException {
-            lock = new CountDownLatch(1);
+        void setDelay(long delayMs) {
+            startTime = System.currentTimeMillis() + delayMs;
+        }
 
-            ResponseObserver responseObserver = new ResponseObserver(lock);
-            requestObserver = (ClientCallStreamObserver<PageHarvest>) frontierAsyncStub
-                    .getNextPage(responseObserver);
+        @Override
+        public long getDelay(@NotNull TimeUnit unit) {
+            long diff = startTime - System.currentTimeMillis();
+            return unit.convert(diff, TimeUnit.MILLISECONDS);
+        }
 
+        @Override
+        public int compareTo(@NotNull Delayed o) {
+            return (int) (startTime - ((Harvester) o).getDelay(TimeUnit.MILLISECONDS));
+        }
+
+        @Override
+        public void run() {
+            if (pageHarvestSpec == null) {
+                getNext();
+            } else {
+                pageCompleted();
+            }
+        }
+
+        void getNext() {
             try {
-                requestObserver.onNext(NEW_PAGE_REQUEST);
-            } catch (RuntimeException e) {
-                // Cancel RPC
-                requestObserver.onError(e);
-            }
-            lock.await();
-            requestObserver = null;
-            lock = null;
-        }
-
-        public void close() {
-            requestObserver.onCompleted();
-        }
-
-        private class ResponseObserver implements StreamObserver<PageHarvestSpec> {
-            final CountDownLatch lock;
-
-            public ResponseObserver(CountDownLatch lock) {
-                this.lock = lock;
-            }
-
-            @Override
-            public void onNext(PageHarvestSpec pageHarvestSpec) {
-                QueuedUri fetchUri = pageHarvestSpec.getQueuedUri();
+                pageHarvestSpec = frontierBlockingStub.getNextPage(Empty.getDefaultInstance());
 
                 // Add request to documentLog
-                requestLog.addRequest(fetchUri.getUri());
+                requestLog.addRequest(pageHarvestSpec.getQueuedUri().getUri());
+
+                setDelay(pageFetchTimeMs);
+                fetchQueue.add(this);
+            } catch (StatusRuntimeException e) {
+                if (e.getStatus().getCode() == Code.NOT_FOUND || e.getStatus().getCode() == Code.CANCELLED) {
+                    if (delay < 100) {
+                        delay = 100;
+                    } else {
+                        delay = 2 * delay;
+                    }
+                    if (delay > 2000) {
+                        delay = 2000;
+                    }
+                    setDelay(delay);
+                    pageHarvestSpec = null;
+                    idleQueue.add(this);
+                } else if (e.getStatus().getCode() == Code.UNAVAILABLE) {
+                    return;
+                } else {
+                    e.printStackTrace();
+                    throw e;
+                }
+            }
+        }
+
+        void pageCompleted() {
+            speed.inc();
+            AtomicBoolean shouldRun = new AtomicBoolean(true);
+            final CountDownLatch finishLatch = new CountDownLatch(1);
+            StreamObserver<Empty> responseObserver = new StreamObserver<Empty>() {
+                @Override
+                public void onNext(Empty value) {
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    System.out.println("ON ERROR " + t.toString());
+                    shouldRun.set(false);
+                    finishLatch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    finishLatch.countDown();
+                }
+            };
+
+            StreamObserver<PageHarvest> requestObserver = frontierAsyncStub.pageCompleted(responseObserver);
+
+            QueuedUri fetchUri = pageHarvestSpec.getQueuedUri();
+
+            try {
+                PageHarvest.Builder reply = PageHarvest.newBuilder().setSessionToken(pageHarvestSpec.getSessionToken());
 
                 // Simulate bug in harvester when crawling url
                 if (exceptionForUrl.match(fetchUri.getUri())) {
@@ -181,7 +256,6 @@ public class HarvesterMock implements AutoCloseable {
 
                 // Simulate failed page fetch when crawling url
                 if (fetchErrorForUrl.match(fetchUri.getUri())) {
-                    PageHarvest.Builder reply = PageHarvest.newBuilder();
                     reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION
                             .toFetchError(new RuntimeException("Simulated fetch error").toString()));
                     requestObserver.onNext(reply.build());
@@ -224,34 +298,62 @@ public class HarvesterMock implements AutoCloseable {
                 }
 
                 try {
-                    PageHarvest.Builder reply = PageHarvest.newBuilder();
-
                     reply.getMetricsBuilder()
                             .setBytesDownloaded(10l)
                             .setUriCount(4);
-                    requestObserver.onNext(reply.build());
+                    if (shouldRun.get()) {
+                        requestObserver.onNext(reply.build());
+                    }
 
                     outlinks.forEach(ol -> {
-                        requestObserver.onNext(PageHarvest.newBuilder().setOutlink(ol).build());
+                        if (shouldRun.get()) {
+                            requestObserver.onNext(PageHarvest.newBuilder().setOutlink(ol).build());
+                        }
                     });
 
-                    requestObserver.onCompleted();
                 } catch (Exception t) {
-                    PageHarvest.Builder reply = PageHarvest.newBuilder();
                     reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError(t.toString()));
                     requestObserver.onNext(reply.build());
-                    requestObserver.onCompleted();
                 }
+
+            } catch (Exception t) {
+                t.printStackTrace();
+                PageHarvest.Builder reply = PageHarvest.newBuilder();
+                reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError(t.toString()));
+                requestObserver.onNext(reply.build());
             }
 
-            @Override
-            public void onError(Throwable t) {
-                lock.countDown();
+            requestObserver.onCompleted();
+            try {
+                finishLatch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
 
-            @Override
-            public void onCompleted() {
-                lock.countDown();
+
+            pageHarvestSpec = null;
+            delay = 0;
+            setDelay(delay);
+            idleQueue.add(this);
+        }
+    }
+
+    private class Speed {
+        long startTime = System.currentTimeMillis();
+        long count;
+
+        double pps() {
+            long now = System.currentTimeMillis();
+            double res = ((double) count / (double) (now - startTime)) * 1000d;
+            startTime = System.currentTimeMillis();
+            count = 0;
+            return res;
+        }
+
+        void inc() {
+            count++;
+            if (System.currentTimeMillis() - startTime > 5000) {
+                LOG.debug("Pages per second: {}", pps());
             }
         }
     }

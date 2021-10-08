@@ -26,7 +26,7 @@
         <maven.compiler.target>11</maven.compiler.target>
         <docker.tag>${project.version}</docker.tag>
 
-        <veidemann.api.version>1.0.0-beta23</veidemann.api.version>
+        <veidemann.api.version>1.0.0-beta24</veidemann.api.version>
         <veidemann.commons.version>v0.6.0</veidemann.commons.version>
         <veidemann.rethinkdbadapter.version>0.8.0</veidemann.rethinkdbadapter.version>
 
@@ -91,7 +91,7 @@
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
-            <version>3.6.0</version>
+            <version>3.7.0</version>
         </dependency>
 
         <dependency>
@@ -115,7 +115,7 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>30.1.1-jre</version>
+            <version>31.0.1-jre</version>
         </dependency>
 
         <!-- Configuration framework -->

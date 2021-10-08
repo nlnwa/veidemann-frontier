@@ -209,7 +209,6 @@ public class StatusWrapper {
         // Set JobExecution's status to FINISHED if it wasn't already aborted
         JobExecutionStatus.State state;
         switch (jes.getState()) {
-            case DIED:
             case FAILED:
             case ABORTED_MANUAL:
                 state = jes.getState();

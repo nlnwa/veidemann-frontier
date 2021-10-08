@@ -371,7 +371,7 @@ public class CrawlHostGroupTest {
             CrawlHostGroup result = chgGetScript.run(ctx, chgId1);
             assertThat(result).isEqualTo(chg1);
 
-            chgReleaseScript.run(ctx, chgId1, "sess1", 1999);
+            chgReleaseScript.run(ctx, chgId1, "sess1", 1999, false);
             assertThat(redisData)
                     .hasQueueTotalCount(5)
                     .crawlExecutionQueueCounts().hasNumberOfElements(4)

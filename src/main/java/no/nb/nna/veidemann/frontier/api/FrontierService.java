@@ -80,8 +80,13 @@ public class FrontierService extends FrontierGrpc.FrontierImplBase {
     }
 
     @Override
-    public StreamObserver<PageHarvest> getNextPage(StreamObserver<PageHarvestSpec> responseObserver) {
-        return new GetNextPageHandler(ctx.newRequestContext((ServerCallStreamObserver) responseObserver));
+    public void getNextPage(Empty request, StreamObserver<PageHarvestSpec> responseObserver) {
+        GetNextPageHandler.onNext(ctx, responseObserver);
+    }
+
+    @Override
+    public StreamObserver<PageHarvest> pageCompleted(StreamObserver<Empty> responseObserver) {
+        return new PageCompletedHandler(ctx, (ServerCallStreamObserver) responseObserver);
     }
 
     @Override

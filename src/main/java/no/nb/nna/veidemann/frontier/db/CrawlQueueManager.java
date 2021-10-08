@@ -7,14 +7,12 @@ import com.rethinkdb.RethinkDB;
 import io.opentracing.Scope;
 import io.opentracing.Span;
 import io.opentracing.tag.Tags;
-import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChangeOrBuilder;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
-import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbConnectionException;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
@@ -22,7 +20,6 @@ import no.nb.nna.veidemann.commons.db.FutureOptional;
 import no.nb.nna.veidemann.db.ProtoUtils;
 import no.nb.nna.veidemann.db.RethinkDbConnection;
 import no.nb.nna.veidemann.db.Tables;
-import no.nb.nna.veidemann.frontier.api.Context;
 import no.nb.nna.veidemann.frontier.db.script.ChgAddScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgBusyTimeoutScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgGetScript;
@@ -40,7 +37,6 @@ import no.nb.nna.veidemann.frontier.db.script.UriAddScript;
 import no.nb.nna.veidemann.frontier.db.script.UriRemoveScript;
 import no.nb.nna.veidemann.frontier.db.script.UriUpdateScript;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
-import no.nb.nna.veidemann.frontier.worker.PostFetchHandler;
 import no.nb.nna.veidemann.frontier.worker.PreFetchHandler;
 import no.nb.nna.veidemann.frontier.worker.QueuedUriWrapper;
 import org.slf4j.Logger;
@@ -66,6 +62,7 @@ public class CrawlQueueManager implements AutoCloseable {
     public final static String CHG_BUSY_KEY = "chg_busy{chg}";
     public final static String CHG_READY_KEY = "chg_ready{chg}";
     public final static String CHG_WAIT_KEY = "chg_wait{chg}";
+    public final static String CHG_TIMEOUT_KEY = "chg_timeout{chg}";
     public static final String CHG_PREFIX = "CHG{chg}:";
     public static final String SESSION_TO_CHG_KEY = "chg_session{chg}";
     public final static String CRAWL_EXECUTION_RUNNING_KEY = "ceid_running";
@@ -127,7 +124,7 @@ public class CrawlQueueManager implements AutoCloseable {
 
         this.crawlQueueWorker = new CrawlQueueWorker(frontier, conn, jedisPool);
         this.nextFetchSupplier = new TimeoutSupplier<>(64, 15, TimeUnit.SECONDS, 6,
-                () -> getPrefetchHandler(), p -> releaseCrawlHostGroup(p.getQueuedUri().getCrawlHostGroupId(), "", RESCHEDULE_DELAY));
+                () -> getPrefetchHandler(), p -> releaseCrawlHostGroup(p.getQueuedUri().getCrawlHostGroupId(), RESCHEDULE_DELAY));
     }
 
     public QueuedUri addToCrawlHostGroup(QueuedUri qUri) throws DbException {
@@ -174,23 +171,24 @@ public class CrawlQueueManager implements AutoCloseable {
         }
     }
 
-    public PageHarvestSpec getNextToFetch(Context ctx) {
-        while (shouldRun) {
-            PreFetchHandler p;
+    public PageHarvestSpec getNextToFetch() {
+        PreFetchHandler p;
+        try {
+            p = nextFetchSupplier.get(1, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            return null;
+        }
+        if (p == null) {
+            return null;
+        }
+        // Reset fetch timeout to compensate for idle time waiting in queue
+        if (p != null && updateBusyTimeout(p.getQueuedUri().getCrawlHostGroupId(), "",
+                Instant.now().plus(frontier.getSettings().getBusyTimeout()).toEpochMilli())) {
             try {
-                p = nextFetchSupplier.get(1, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
+                return p.getHarvestSpec();
+            } catch (DbException e) {
+                LOG.warn(e.toString(), e);
                 return null;
-            }
-            // Reset fetch timeout to compensate for idle time waiting in queue
-            if (p != null && updateBusyTimeout(p.getQueuedUri().getCrawlHostGroupId(), "",
-                    Instant.now().plus(frontier.getSettings().getBusyTimeout()).toEpochMilli())) {
-                try {
-                    return p.getHarvestSpec();
-                } catch (DbException e) {
-                    LOG.warn(e.toString(), e);
-                    return null;
-                }
             }
         }
         return null;
@@ -249,11 +247,11 @@ public class CrawlQueueManager implements AutoCloseable {
                 // This ensures new uri's do not have to wait until a failed uri is eligible for retry while
                 // not using to much resources.
                 long delay = (RESCHEDULE_DELAY + foqu.getDelayMs()) / 2;
-                releaseCrawlHostGroup(jedisContext, chg.getId(), chg.getSessionToken(), delay);
+                releaseCrawlHostGroup(jedisContext, chg.getId(), chg.getSessionToken(), delay, false);
             } else {
                 // No URI found for this CrawlHostGroup. Wait for RESCHEDULE_DELAY and try again.
                 LOG.warn("No Queued URI found waiting {}ms before retry", RESCHEDULE_DELAY);
-                releaseCrawlHostGroup(jedisContext, chg.getId(), chg.getSessionToken(), RESCHEDULE_DELAY);
+                releaseCrawlHostGroup(jedisContext, chg.getId(), chg.getSessionToken(), RESCHEDULE_DELAY, false);
             }
         } catch (Exception e) {
             LOG.error("Failed borrowing CrawlHostGroup", e);
@@ -284,30 +282,6 @@ public class CrawlQueueManager implements AutoCloseable {
                 return null;
             }
             return chgGetScript.run(ctx, chgId);
-        }
-    }
-
-    public Integer releaseTimedOutBusyChgs() {
-        Error err = ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError("Timeout waiting for Harvester");
-
-        try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
-            List<String> timedOutChgIds = chgBusyTimeoutScript.run(ctx);
-            for (String chgId : timedOutChgIds) {
-                try {
-                    CrawlHostGroup chg = frontier.getCrawlQueueManager().getCrawlHostGroup(chgId);
-                    if (chg.getCurrentUriId().isEmpty()) {
-                        releaseCrawlHostGroup(ctx, chg.getId(), chg.getSessionToken(), 0);
-                        continue;
-                    }
-                    PostFetchHandler postFetchHandler = new PostFetchHandler(chg, frontier);
-                    postFetchHandler.postFetchFailure(err);
-                    postFetchHandler.postFetchFinally();
-                } catch (DbException e) {
-                    LOG.warn("Error while getting chg {}", chgId, e);
-                }
-            }
-
-            return timedOutChgIds.size();
         }
     }
 
@@ -521,21 +495,34 @@ public class CrawlQueueManager implements AutoCloseable {
         }
     }
 
-    public void releaseCrawlHostGroup(CrawlHostGroup crawlHostGroup, long nextFetchDelayMs) {
+    public void releaseCrawlHostGroup(CrawlHostGroup crawlHostGroup, long nextFetchDelayMs, boolean isTimeout) {
         try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
-            releaseCrawlHostGroup(ctx, crawlHostGroup.getId(), crawlHostGroup.getSessionToken(), nextFetchDelayMs);
+            releaseCrawlHostGroup(ctx, crawlHostGroup.getId(), crawlHostGroup.getSessionToken(), nextFetchDelayMs, isTimeout);
         }
     }
 
-    public void releaseCrawlHostGroup(String crawlHostGroupId, String sessionToken, long nextFetchDelayMs) {
+    public void releaseCrawlHostGroup(String crawlHostGroupId, long nextFetchDelayMs) {
         try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
             LOG.debug("Releasing CrawlHostGroup: {}, with no sessionToken", crawlHostGroupId);
-            releaseCrawlHostGroup(ctx, crawlHostGroupId, sessionToken, nextFetchDelayMs);
+            releaseCrawlHostGroup(ctx, crawlHostGroupId, "", nextFetchDelayMs, false);
         }
     }
 
-    public void releaseCrawlHostGroup(JedisContext ctx, String crawlHostGroupId, String sessionToken, long nextFetchDelayMs) {
-        releaseChgScript.run(ctx, crawlHostGroupId, sessionToken, nextFetchDelayMs);
+    /**
+     * Release a busy CrawlHostGroup.
+     * <p>
+     * Moves CHG from busy queue to wait queue and removes the session token. If CHG should be released because of timeout
+     * while waiting for harvester, then the isTimeout paramater should be set to true. In this situation the CHG is
+     * already removed from busy queue and the Lua script can take that into account.
+     *
+     * @param ctx
+     * @param crawlHostGroupId
+     * @param sessionToken
+     * @param nextFetchDelayMs
+     * @param isTimeout
+     */
+    public void releaseCrawlHostGroup(JedisContext ctx, String crawlHostGroupId, String sessionToken, long nextFetchDelayMs, boolean isTimeout) {
+        releaseChgScript.run(ctx, crawlHostGroupId, sessionToken, nextFetchDelayMs, isTimeout);
     }
 
     public void scheduleCrawlExecutionTimeout(String ceid, OffsetDateTime timeout) {

@@ -76,12 +76,16 @@ public class PostFetchHandler {
     }
 
     public PostFetchHandler(CrawlHostGroup chg, Frontier frontier) throws DbException {
+        this(chg, frontier, true);
+    }
+
+    public PostFetchHandler(CrawlHostGroup chg, Frontier frontier, boolean extendBusyTime) throws DbException {
         if (chg == null) {
             LOG.debug("Could not find CrawlHostGroup. Fetch has probably timed out");
             throw new IllegalSessionException("Could not find CrawlHostGroup. Fetch has probably timed out");
         }
         // Refresh CHG busy timout to ensure postfetch has time to do its job.
-        if (!frontier.getCrawlQueueManager().updateBusyTimeout(chg.getId(),
+        if (extendBusyTime && !frontier.getCrawlQueueManager().updateBusyTimeout(chg.getId(),
                 chg.getSessionToken(), System.currentTimeMillis() + 60000L)) {
             LOG.debug("Could not refresh busy timeout. Fetch has probably timed out");
             throw new IllegalSessionException("Could not refresh busy timeout. Fetch has probably timed out");
@@ -163,6 +167,10 @@ public class PostFetchHandler {
      * This should be run regardless of if we fetched anything or if the fetch failed in any way.
      */
     public void postFetchFinally() {
+        postFetchFinally(false);
+    }
+
+    public void postFetchFinally(boolean isTimeout) {
         if (finalized.compareAndSet(false, true)) {
             try {
                 calculateDelay();
@@ -174,7 +182,7 @@ public class PostFetchHandler {
             MDC.put("uri", qUri.getUri());
 
             try {
-                if (!CrawlExecutionHelpers.isAborted(frontier, status)) {
+                if (Preconditions.crawlExecutionOk(frontier, status)) {
                     // Handle outlinks
                     Span span = GlobalTracer.get().activeSpan();
                     ConfigRef scopeScriptRef = status.getCrawlJobConfig().getCrawlJob().getScopeScriptRef();
@@ -195,7 +203,7 @@ public class PostFetchHandler {
                 LOG.error(e.toString(), e);
             }
 
-            CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, getDelay(TimeUnit.MILLISECONDS));
+            CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, getDelay(TimeUnit.MILLISECONDS), isTimeout);
         }
     }
 

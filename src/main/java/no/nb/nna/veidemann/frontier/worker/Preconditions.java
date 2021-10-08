@@ -49,18 +49,21 @@ public class Preconditions {
     private Preconditions() {
     }
 
+    public static synchronized boolean crawlExecutionOk(Frontier frontier, StatusWrapper status) throws DbException {
+        if (CrawlExecutionHelpers.isAborted(frontier, status)) {
+            return false;
+        }
+
+        if (isLimitReached(status)) {
+            return false;
+        }
+        return true;
+    }
+
     public static ListenableFuture<PreconditionState> checkPreconditions(Frontier frontier, ConfigObject crawlConfig, StatusWrapper status,
                                                                          QueuedUriWrapper qUri) throws DbException {
 
         qUri.clearError();
-
-        if (CrawlExecutionHelpers.isAborted(frontier, status)) {
-            return Futures.immediateFuture(PreconditionState.DENIED);
-        }
-
-        if (isLimitReached(status)) {
-            return Futures.immediateFuture(PreconditionState.DENIED);
-        }
 
         if (!qUri.shouldInclude()) {
             LOG.debug("URI '{}' precluded by scope check. Reason: {}", qUri.getUri(), qUri.getExcludedReasonStatusCode());

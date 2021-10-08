@@ -92,6 +92,13 @@ public class PreFetchHandler {
         }
 
         try {
+            if (!Preconditions.crawlExecutionOk(frontier, status)) {
+                LOG.debug("DENIED");
+                status.removeCurrentUri(qUri).saveStatus();
+                CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, 0);
+                return false;
+            }
+
             String curCrawlHostGroupId = qUri.getCrawlHostGroupId();
             PreconditionState check = Preconditions.checkPreconditions(frontier, status.getCrawlConfig(), status, qUri).get();
             switch (check) {
@@ -103,7 +110,7 @@ public class PreFetchHandler {
                 case RETRY:
                     LOG.debug("RETRY");
                     status.saveStatus();
-                    frontier.getCrawlQueueManager().releaseCrawlHostGroup(curCrawlHostGroupId, "", 0);
+                    frontier.getCrawlQueueManager().releaseCrawlHostGroup(curCrawlHostGroupId, 0);
                     return false;
                 case OK:
                     LOG.debug("OK");

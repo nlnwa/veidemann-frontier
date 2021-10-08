@@ -210,6 +210,10 @@ public class Frontier implements AutoCloseable {
                     scriptParameters, request.getJob().getCrawlJob().getScopeScriptRef());
             qUri.setPriorityWeight(crawlConfig.getCrawlConfig().getPriorityWeight());
 
+            if (!Preconditions.crawlExecutionOk(this, status)) {
+                return;
+            }
+
             ListenableFuture<PreconditionState> future = Preconditions.checkPreconditions(this, crawlConfig, status, qUri);
             Futures.transformAsync(future, c -> {
                 switch (c) {
