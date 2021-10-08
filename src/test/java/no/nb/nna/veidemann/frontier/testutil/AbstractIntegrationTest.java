@@ -124,7 +124,7 @@ public class AbstractIntegrationTest {
         settings.setDbName("veidemann");
         settings.setDbUser("admin");
         settings.setDbPassword("");
-        settings.setBusyTimeout(Duration.ofSeconds(2));
+        settings.setBusyTimeout(Duration.ofSeconds(4));
         settings.setApiPort(AbstractIntegrationTest.getIntProperty("frontier.port", 9504));
         settings.setTerminationGracePeriodSeconds(10);
         settings.setRedisHost(redis.getHost());

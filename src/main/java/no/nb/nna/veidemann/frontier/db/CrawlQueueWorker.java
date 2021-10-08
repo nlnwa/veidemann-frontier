@@ -2,8 +2,11 @@ package no.nb.nna.veidemann.frontier.db;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.rethinkdb.RethinkDB;
+import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus.State;
+import no.nb.nna.veidemann.api.frontier.v1.CrawlHostGroup;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
+import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbService;
 import no.nb.nna.veidemann.db.ProtoUtils;
@@ -13,6 +16,7 @@ import no.nb.nna.veidemann.frontier.db.script.ChgBusyTimeoutScript;
 import no.nb.nna.veidemann.frontier.db.script.ChgDelayedQueueScript;
 import no.nb.nna.veidemann.frontier.db.script.RedisJob.JedisContext;
 import no.nb.nna.veidemann.frontier.worker.Frontier;
+import no.nb.nna.veidemann.frontier.worker.PostFetchHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
@@ -24,7 +28,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.*;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_BUSY_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_READY_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_TIMEOUT_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CHG_WAIT_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CRAWL_EXECUTION_RUNNING_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.CRAWL_EXECUTION_TIMEOUT_KEY;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.JOB_EXECUTION_PREFIX;
+import static no.nb.nna.veidemann.frontier.db.CrawlQueueManager.REMOVE_URI_QUEUE_KEY;
 
 public class CrawlQueueWorker implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(CrawlQueueWorker.class);
@@ -47,9 +58,9 @@ public class CrawlQueueWorker implements AutoCloseable {
                     LOG.debug("{} CrawlHostGroups moved from wait state to ready state", moved);
                 }
 
-                moved = frontier.getCrawlQueueManager().releaseTimedOutBusyChgs().longValue();
+                moved = delayedChgQueueScript.run(ctx, CHG_BUSY_KEY, CHG_TIMEOUT_KEY);
                 if (moved > 0) {
-                    LOG.warn("{} CrawlHostGroups moved from busy state to ready state", moved);
+                    LOG.warn("{} CrawlHostGroups moved from busy state to wait state", moved);
                 }
 
                 moved = delayedChgQueueScript.run(ctx, CRAWL_EXECUTION_RUNNING_KEY, CRAWL_EXECUTION_TIMEOUT_KEY);
@@ -84,6 +95,33 @@ public class CrawlQueueWorker implements AutoCloseable {
                 }
             } catch (Throwable t) {
                 LOG.error("Error running chg queue manager script", t);
+            }
+        }
+    };
+
+    Runnable fetchTimeoutWorker = new Runnable() {
+        @Override
+        public void run() {
+            Error err = ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError("Timeout waiting for Harvester");
+
+            try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
+                String chgId = ctx.getJedis().lpop(CHG_TIMEOUT_KEY);
+                while (chgId != null) {
+                    try {
+                        CrawlHostGroup chg = frontier.getCrawlQueueManager().getCrawlHostGroup(chgId);
+                        if (chg.getCurrentUriId().isEmpty()) {
+                            frontier.getCrawlQueueManager().releaseCrawlHostGroup(ctx, chg.getId(), chg.getSessionToken(), 0, true);
+                            continue;
+                        }
+                        PostFetchHandler postFetchHandler = new PostFetchHandler(chg, frontier, false);
+                        postFetchHandler.postFetchFailure(err);
+                        postFetchHandler.postFetchFinally(true);
+                    } catch (Exception e) {
+                        LOG.warn("Error while getting chg {}", chgId, e);
+                    }
+
+                    chgId = ctx.getJedis().lpop(CHG_TIMEOUT_KEY);
+                }
             }
         }
     };
@@ -151,8 +189,9 @@ public class CrawlQueueWorker implements AutoCloseable {
 
         delayedChgQueueScript = new ChgDelayedQueueScript();
         chgBusyTimeoutScript = new ChgBusyTimeoutScript();
-        executor.scheduleWithFixedDelay(chgQueueWorker, 400, 400, TimeUnit.MILLISECONDS);
-        executor.scheduleWithFixedDelay(removeUriQueueWorker, 1000, 1000, TimeUnit.MILLISECONDS);
+        executor.scheduleWithFixedDelay(chgQueueWorker, 400, 50, TimeUnit.MILLISECONDS);
+        executor.scheduleWithFixedDelay(removeUriQueueWorker, 1000, 200, TimeUnit.MILLISECONDS);
+        executor.scheduleWithFixedDelay(fetchTimeoutWorker, 1200, 500, TimeUnit.MILLISECONDS);
         executor.scheduleWithFixedDelay(crawlExecutionTimeoutWorker, 1100, 1100, TimeUnit.MILLISECONDS);
         executor.scheduleWithFixedDelay(checkPaused, 3, 3, TimeUnit.SECONDS);
         executor.scheduleWithFixedDelay(updateJobExecutions, 5, 5, TimeUnit.SECONDS);

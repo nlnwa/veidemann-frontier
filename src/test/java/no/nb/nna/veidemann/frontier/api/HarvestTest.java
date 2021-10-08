@@ -21,7 +21,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static no.nb.nna.veidemann.commons.ExtraStatusCodes.*;
+import static no.nb.nna.veidemann.commons.ExtraStatusCodes.FAILED_DNS;
+import static no.nb.nna.veidemann.commons.ExtraStatusCodes.PRECLUDED_BY_ROBOTS;
+import static no.nb.nna.veidemann.commons.ExtraStatusCodes.RETRY_LIMIT_REACHED;
+import static no.nb.nna.veidemann.commons.ExtraStatusCodes.RUNTIME_EXCEPTION;
 import static no.nb.nna.veidemann.frontier.testutil.FrontierAssertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -50,16 +53,16 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(crawl.getStatus().getId(), j -> {
-            assertThat(j)
-                    .hasState(JobExecutionStatus.State.FINISHED)
-                    .hasStartTime(true)
-                    .hasEndTime(true)
-                    .documentsCrawledEquals(13)
-                    .documentsDeniedEquals(0)
-                    .documentsFailedEquals(0)
-                    .documentsRetriedEquals(0)
-                    .documentsOutOfScopeEquals(27);
-        });
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(13)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(27);
+                });
 
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
@@ -399,16 +402,16 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(crawl.getStatus().getId(), j -> {
-            assertThat(j)
-                    .hasState(JobExecutionStatus.State.FINISHED)
-                    .hasStartTime(true)
-                    .hasEndTime(true)
-                    .documentsCrawledEquals(5)
-                    .documentsDeniedEquals(3)
-                    .documentsFailedEquals(1)
-                    .documentsRetriedEquals(0)
-                    .documentsOutOfScopeEquals(9);
-        });
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(5)
+                            .documentsDeniedEquals(3)
+                            .documentsFailedEquals(1)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(9);
+                });
         String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
         String crawlExecutionId2 = seeds.get(1).getCrawlExecution(job).get().getId();
         assertThat(rethinkDbData)
@@ -473,24 +476,24 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 .hasQueueTotalCount(0);
         assertThat(rethinkDbData)
                 .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(crawl.getStatus().getId(), j -> {
-            assertThat(j)
-                    .hasState(JobExecutionStatus.State.FINISHED)
-                    .hasStartTime(true)
-                    .hasEndTime(true)
-                    .documentsCrawledEquals(4)
-                    .documentsDeniedEquals(0)
-                    .documentsFailedEquals(0)
-                    .documentsRetriedEquals(0)
-                    .documentsOutOfScopeEquals(5)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_MANUAL, 0)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_TIMEOUT, 0)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_SIZE, 0)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.FINISHED, 1)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.FAILED, 0)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.CREATED, 0)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
-                    .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
-        });
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(4)
+                            .documentsDeniedEquals(0)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(0)
+                            .documentsOutOfScopeEquals(5)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_MANUAL, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_TIMEOUT, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.ABORTED_SIZE, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FINISHED, 1)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FAILED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.CREATED, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.FETCHING, 0)
+                            .executionsStateCountEquals(CrawlExecutionStatus.State.SLEEPING, 0);
+                });
         assertThat(rethinkDbData)
                 .crawlExecutionStatuses().hasSize(seedCount)
                 .allSatisfy((id, s) -> {
@@ -740,7 +743,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
         scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
         harvesterMock.withLinksPerLevel(linksPerLevel);
-        dnsResolverMock.withSimulatedLookupTimeMs(300);
+        dnsResolverMock.withSimulatedLookupTimeMs(30);
 
         ConfigObject job = crawlRunner.genJob("job1");
         List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
@@ -819,18 +822,8 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
             seeds.addAll(crawlRunner.genSeeds(seedCount, hostPrefix, job));
         }
         RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawl.awaitAllSeedsSubmitted(5, TimeUnit.SECONDS);
 
-        // Abort job as soon as one hundred seeds are sleeping.
-        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.MINUTES)
-                .until(() -> {
-                    try (Jedis jedis = jedisPool.getResource()) {
-                        Map<String, String> f = jedis.hgetAll(CrawlQueueManager.JOB_EXECUTION_PREFIX + crawl.getStatus().getId());
-                        if (Integer.parseInt(f.getOrDefault("SLEEPING", "0")) > 10) {
-                            return true;
-                        }
-                        return false;
-                    }
-                });
         DbService.getInstance().getExecutionsAdapter().setJobExecutionStateAborted(crawl.getStatus().getId());
 
         // Wait for crawl to finish
@@ -884,7 +877,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
                 .withFetchTime(200);
         dnsResolverMock.withSimulatedLookupTimeMs(300);
 
-        ConfigObject job = crawlRunner.genJob("job1", CrawlLimitsConfig.newBuilder().setMaxDurationS(5).build());
+        ConfigObject job = crawlRunner.genJob("job1", CrawlLimitsConfig.newBuilder().setMaxDurationS(5).build(), 1.0);
         List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
         RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
         crawlRunner.awaitCrawlFinished(2, TimeUnit.MINUTES, crawl);

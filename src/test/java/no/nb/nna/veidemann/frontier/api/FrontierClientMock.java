@@ -17,9 +17,9 @@
 package no.nb.nna.veidemann.frontier.api;
 
 
+import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import no.nb.nna.veidemann.api.commons.v1.Error;
 import no.nb.nna.veidemann.api.frontier.v1.FrontierGrpc;
@@ -28,6 +28,7 @@ import no.nb.nna.veidemann.api.frontier.v1.PageHarvestSpec;
 import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.ExtraStatusCodes;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class FrontierClientMock implements AutoCloseable {
@@ -36,11 +37,10 @@ public class FrontierClientMock implements AutoCloseable {
     final static int EXCEPTION = 2;
     final static int SUCCESS_WITH_OUTLINKS = 3;
 
-    private final static PageHarvest NEW_PAGE_REQUEST = PageHarvest.newBuilder().setRequestNextPage(true).build();
-
     private final ManagedChannel channel;
 
     private final FrontierGrpc.FrontierStub asyncStub;
+    private final FrontierGrpc.FrontierBlockingStub blockingStub;
 
     /**
      * Construct client for accessing Frontier using the existing channel.
@@ -48,21 +48,64 @@ public class FrontierClientMock implements AutoCloseable {
     public FrontierClientMock(ManagedChannelBuilder<?> channelBuilder) {
         channel = channelBuilder.build();
         asyncStub = FrontierGrpc.newStub(channel).withWaitForReady();
+        blockingStub = FrontierGrpc.newBlockingStub(channel).withWaitForReady();
     }
 
-    public void requestNext(int responseType) {
-        ResponseObserver responseObserver = new ResponseObserver(responseType);
+    public PageHarvestSpec requestNext() {
+        return blockingStub.getNextPage(Empty.getDefaultInstance());
+    }
 
-        StreamObserver<PageHarvest> requestObserver = asyncStub.getNextPage(responseObserver);
-        responseObserver.setRequestObserver(requestObserver);
+    public void pageCompleted(PageHarvestSpec pageHarvestSpec, int responseType) throws InterruptedException {
+        final CountDownLatch finishLatch = new CountDownLatch(1);
+        StreamObserver<Empty> responseObserver = new StreamObserver<Empty>() {
+            @Override
+            public void onNext(Empty value) {
+            }
 
+            @Override
+            public void onError(Throwable t) {
+                finishLatch.countDown();
+            }
+
+            @Override
+            public void onCompleted() {
+                finishLatch.countDown();
+            }
+        };
+
+        StreamObserver<PageHarvest> requestObserver = asyncStub.pageCompleted(responseObserver);
+
+        QueuedUri fetchUri = pageHarvestSpec.getQueuedUri();
         try {
-            requestObserver.onNext(NEW_PAGE_REQUEST);
-        } catch (RuntimeException e) {
-            // Cancel RPC
-            e.printStackTrace();
-            requestObserver.onError(e);
+            PageHarvest.Builder reply = PageHarvest.newBuilder().setSessionToken(pageHarvestSpec.getSessionToken());
+
+            switch (responseType) {
+                case ERROR:
+                    reply.setError(Error.newBuilder().setCode(1).setMsg("Error").build());
+                    requestObserver.onNext(reply.build());
+                    break;
+                case SUCCESS:
+                    reply.getMetricsBuilder();
+                    requestObserver.onNext(reply.build());
+                    break;
+                case SUCCESS_WITH_OUTLINKS:
+                    reply.getMetricsBuilder();
+                    requestObserver.onNext(reply.build());
+                    requestObserver.onNext(PageHarvest.newBuilder().setOutlink(QueuedUri.newBuilder().setUri("http://example.com")).build());
+                    break;
+                case EXCEPTION:
+                    throw new RuntimeException("Simulated render exception");
+            }
+
+            requestObserver.onCompleted();
+        } catch (Exception t) {
+            PageHarvest.Builder reply = PageHarvest.newBuilder();
+            reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError(t.toString()));
+            requestObserver.onNext(reply.build());
+            requestObserver.onCompleted();
         }
+        requestObserver.onCompleted();
+        finishLatch.await(1, TimeUnit.MINUTES);
     }
 
     @Override
@@ -74,61 +117,6 @@ public class FrontierClientMock implements AutoCloseable {
             }
         } catch (InterruptedException ex) {
             throw new RuntimeException(ex);
-        }
-    }
-
-    private class ResponseObserver implements StreamObserver<PageHarvestSpec> {
-        StreamObserver<PageHarvest> requestObserver;
-        int respType;
-
-        public ResponseObserver(int respType) {
-            this.respType = respType;
-        }
-
-        public void setRequestObserver(StreamObserver<PageHarvest> requestObserver) {
-            this.requestObserver = requestObserver;
-        }
-
-        @Override
-        public void onNext(PageHarvestSpec pageHarvestSpec) {
-            QueuedUri fetchUri = pageHarvestSpec.getQueuedUri();
-            try {
-                PageHarvest.Builder reply = PageHarvest.newBuilder();
-
-                switch (respType) {
-                    case ERROR:
-                        reply.setError(Error.newBuilder().setCode(1).setMsg("Error").build());
-                        requestObserver.onNext(reply.build());
-                        break;
-                    case SUCCESS:
-                        reply.getMetricsBuilder();
-                        requestObserver.onNext(reply.build());
-                        break;
-                    case SUCCESS_WITH_OUTLINKS:
-                        reply.getMetricsBuilder();
-                        requestObserver.onNext(reply.build());
-                        requestObserver.onNext(PageHarvest.newBuilder().setOutlink(QueuedUri.newBuilder().setUri("http://example.com")).build());
-                        break;
-                    case EXCEPTION:
-                        throw new RuntimeException("Simulated render exception");
-                }
-
-                requestObserver.onCompleted();
-            } catch (Exception t) {
-                PageHarvest.Builder reply = PageHarvest.newBuilder();
-                reply.setError(ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError(t.toString()));
-                requestObserver.onNext(reply.build());
-                requestObserver.onCompleted();
-            }
-        }
-
-        @Override
-        public void onError(Throwable t) {
-            Status status = Status.fromThrowable(t);
-        }
-
-        @Override
-        public void onCompleted() {
         }
     }
 }

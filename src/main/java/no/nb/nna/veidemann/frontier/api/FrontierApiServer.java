@@ -73,8 +73,9 @@ public class FrontierApiServer {
                         ConcurrencyLimitServerInterceptor.newBuilder(
                                 new GrpcServerLimiterBuilder()
                                         .partitionByMethod()
-                                        .partition(FrontierGrpc.getCrawlSeedMethod().getFullMethodName(), 0.38)
-                                        .partition(FrontierGrpc.getGetNextPageMethod().getFullMethodName(), 0.02)
+                                        .partition(FrontierGrpc.getCrawlSeedMethod().getFullMethodName(), 0.30)
+                                        .partition(FrontierGrpc.getGetNextPageMethod().getFullMethodName(), 0.0001)
+                                        .partition(FrontierGrpc.getPageCompletedMethod().getFullMethodName(), 0.0999)
                                         .partition(FrontierGrpc.getBusyCrawlHostGroupCountMethod().getFullMethodName(), 0.15)
                                         .partition(FrontierGrpc.getQueueCountForCrawlExecutionMethod().getFullMethodName(), 0.15)
                                         .partition(FrontierGrpc.getQueueCountForCrawlHostGroupMethod().getFullMethodName(), 0.15)

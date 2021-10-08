@@ -54,11 +54,13 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -78,6 +80,7 @@ public class CrawlRunner implements AutoCloseable {
     private final RethinkDbData rethinkDbData;
     private final JedisPool jedisPool;
     private final Map<String, String> jobExecIdToJobName = new HashMap<>();
+    private final ExecutorService submitSeedExecutor = Executors.newFixedThreadPool(8);
 
     public CrawlRunner(Settings settings, RethinkDbData rethinkDbData, JedisPool jedisPool) {
         frontierChannel = ManagedChannelBuilder.forAddress("localhost", settings.getApiPort()).usePlaintext().build();
@@ -87,19 +90,20 @@ public class CrawlRunner implements AutoCloseable {
     }
 
     public ConfigObject genJob(String name) throws DbException {
-        return genJob(name, CrawlLimitsConfig.getDefaultInstance());
+        return genJob(name, CrawlLimitsConfig.getDefaultInstance(), 1.0);
     }
 
-    public ConfigObject genJob(String name, CrawlLimitsConfig limits) throws DbException {
+    public ConfigObject genJob(String name, CrawlLimitsConfig limits, double priority) throws DbException {
         ConfigObject.Builder defaultCrawlHostGroupConfig = c.getConfigObject(ConfigRef.newBuilder()
-                .setKind(Kind.crawlHostGroupConfig).setId("chg-default")
-                .build())
+                        .setKind(Kind.crawlHostGroupConfig).setId("chg-default")
+                        .build())
                 .toBuilder();
         defaultCrawlHostGroupConfig.getCrawlHostGroupConfigBuilder()
                 .setMinTimeBetweenPageLoadMs(1)
-                .setMaxTimeBetweenPageLoadMs(10)
-                .setDelayFactor(.5f)
-                .setRetryDelaySeconds(2);
+                .setMaxTimeBetweenPageLoadMs(1)
+                .setDelayFactor(.1f)
+                .setMaxRetries(3)
+                .setRetryDelaySeconds(1);
         c.saveConfigObject(defaultCrawlHostGroupConfig.build());
 
         ConfigObject.Builder politenessBuilder = ConfigObject.newBuilder()
@@ -127,7 +131,7 @@ public class CrawlRunner implements AutoCloseable {
                 .setKind(Kind.crawlConfig);
         crawlConfigBuilder.getMetaBuilder().setName("stress");
         crawlConfigBuilder.getCrawlConfigBuilder()
-                .setPriorityWeight(1)
+                .setPriorityWeight(priority)
                 .setPolitenessRef(ApiTools.refForConfig(politeness))
                 .setBrowserConfigRef(ApiTools.refForConfig(browserConfig))
                 .setCollectionRef(ApiTools.refForConfig(collection));
@@ -159,7 +163,7 @@ public class CrawlRunner implements AutoCloseable {
 
         Set<ConfigRef> jobRefs = Arrays.stream(jobs).map(j -> ApiTools.refForConfig(j)).collect(Collectors.toSet());
 
-        CompletionService submitSeedExecutor = new ExecutorCompletionService(ForkJoinPool.commonPool());
+        CompletionService generateSeedService = new ExecutorCompletionService(submitSeedExecutor);
         SeedAndExecutions[] seeds = new SeedAndExecutions[count];
 
         for (int i = 0; i < count; i++) {
@@ -167,7 +171,7 @@ public class CrawlRunner implements AutoCloseable {
             String name = String.format("%s-%06d", hostPrefix, i + offset);
             String url = String.format("http://%s-%06d.com", hostPrefix, i + offset);
 
-            submitSeedExecutor.submit(() -> {
+            generateSeedService.submit(() -> {
                 ConfigObject.Builder entityBuilder = ConfigObject.newBuilder()
                         .setApiVersion("v1")
                         .setKind(Kind.crawlEntity);
@@ -182,14 +186,18 @@ public class CrawlRunner implements AutoCloseable {
                         .setEntityRef(ApiTools.refForConfig(entity))
                         .addAllJobRef(jobRefs);
 
-                ConfigObject seed = c.saveConfigObject(seedBuilder.build());
-                seeds[idx] = new SeedAndExecutions(seed, jobRefs);
+                try {
+                    ConfigObject seed = c.saveConfigObject(seedBuilder.build());
+                    seeds[idx] = new SeedAndExecutions(seed, jobRefs);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
                 return null;
             });
         }
         for (int i = 0; i < count; i++) {
             try {
-                submitSeedExecutor.take();
+                generateSeedService.take();
             } catch (InterruptedException interruptedException) {
                 interruptedException.printStackTrace();
             }
@@ -197,21 +205,35 @@ public class CrawlRunner implements AutoCloseable {
         return Arrays.asList(seeds);
     }
 
-    public RunningCrawl runCrawl(ConfigObject crawlJob, List<SeedAndExecutions> seeds) throws DbException {
-        LOG.info("Submitting seeds to job '{}'", crawlJob.getMeta().getName());
+    public RunningCrawl runCrawl(final ConfigObject crawlJob, final List<SeedAndExecutions> seeds) throws DbException {
+        LOG.info("Submitting {} seeds to job '{}'", seeds.size(), crawlJob.getMeta().getName());
         JobExecutionStatus jes = e.createJobExecutionStatus(crawlJob.getId());
-        ForkJoinPool.commonPool().submit((Callable<Void>) () -> {
-            for (SeedAndExecutions seed : seeds) {
-                Builder requestBuilder = CrawlSeedRequest.newBuilder()
-                        .setJob(crawlJob)
-                        .setSeed(seed.seed)
-                        .setJobExecutionId(jes.getId());
-                CrawlExecutionId ceid = frontierStub.crawlSeed(requestBuilder.build());
-                seed.crawlExecutions.get(crawlJob.getId()).set(ceid);
-            }
-            return null;
-        });
+
         RunningCrawl c = new RunningCrawl();
+        c.remainingSeeds = new CountDownLatch(seeds.size());
+
+        try {
+            for (SeedAndExecutions seed : seeds) {
+                submitSeedExecutor.submit(() -> {
+                    Objects.requireNonNull(seeds);
+                    Objects.requireNonNull(seed);
+                    Objects.requireNonNull(crawlJob);
+                    Objects.requireNonNull(jes);
+                    Objects.requireNonNull(jes.getId());
+                    Objects.requireNonNull(seed.seed);
+                    Builder requestBuilder = CrawlSeedRequest.newBuilder()
+                            .setJob(crawlJob)
+                            .setSeed(seed.seed)
+                            .setJobExecutionId(jes.getId());
+                    CrawlExecutionId ceid = frontierStub.crawlSeed(requestBuilder.build());
+                    seed.crawlExecutions.get(crawlJob.getId()).set(ceid);
+                    c.remainingSeeds.countDown();
+                });
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         c.jobName = crawlJob.getMeta().getName();
         c.jes = jes;
         return c;
@@ -225,64 +247,66 @@ public class CrawlRunner implements AutoCloseable {
         AtomicInteger emptyChgKeysCount = new AtomicInteger(0);
         await().pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).atMost(timeout, unit)
                 .until(() -> {
-                    Set<String> chgKeys = jedisPool.getResource().keys("chg*");
-                    if (chgKeys.isEmpty()) {
-                        emptyChgKeysCount.incrementAndGet();
-                    }
+                    try (Jedis jedis = jedisPool.getResource()) {
+                        Set<String> chgKeys = jedis.keys("chg*");
+                        if (chgKeys.isEmpty()) {
+                            emptyChgKeysCount.incrementAndGet();
+                        }
 
-                    List<RunningCrawl> statuses = Arrays.stream(runningCrawls)
-                            .map(j -> {
-                                try {
-                                    j.jes = e.getJobExecutionStatus(j.jes.getId());
-                                    return j;
-                                } catch (DbException e) {
-                                    throw new RuntimeException(e);
-                                }
-                            })
-                            .filter(j -> j.jes.getState() == State.RUNNING)
-                            .peek(j -> {
-                                if (LOG.isTraceEnabled()) {
-                                    LOG.trace("Job '{}' {}, Executions: CREATED={}, FETCHING={}, SLEEPING={}, FINISHED={}, ABORTED_TIMEOUT={}, ABORTED_SIZE={}, ABORTED_MANUAL={}, FAILED={}",
-                                            j.jobName, j.jes.getState(),
-                                            j.jes.getExecutionsStateMap().getOrDefault("CREATED", 0),
-                                            j.jes.getExecutionsStateMap().getOrDefault("FETCHING", 0),
-                                            j.jes.getExecutionsStateMap().getOrDefault("SLEEPING", 0),
-                                            j.jes.getExecutionsStateMap().getOrDefault("FINISHED", 0),
-                                            j.jes.getExecutionsStateMap().getOrDefault("ABORTED_TIMEOUT", 0),
-                                            j.jes.getExecutionsStateMap().getOrDefault("ABORTED_SIZE", 0),
-                                            j.jes.getExecutionsStateMap().getOrDefault("ABORTED_MANUAL", 0),
-                                            j.jes.getExecutionsStateMap().getOrDefault("FAILED", 0));
-                                }
-                            }).collect(Collectors.toList());
+                        List<RunningCrawl> statuses = Arrays.stream(runningCrawls)
+                                .map(j -> {
+                                    try {
+                                        j.jes = e.getJobExecutionStatus(j.jes.getId());
+                                        return j;
+                                    } catch (DbException e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                })
+                                .filter(j -> j.jes.getState() == State.RUNNING)
+                                .peek(j -> {
+                                    if (LOG.isTraceEnabled()) {
+                                        LOG.trace("Job '{}' {}, Executions: CREATED={}, FETCHING={}, SLEEPING={}, FINISHED={}, ABORTED_TIMEOUT={}, ABORTED_SIZE={}, ABORTED_MANUAL={}, FAILED={}",
+                                                j.jobName, j.jes.getState(),
+                                                j.jes.getExecutionsStateMap().getOrDefault("CREATED", 0),
+                                                j.jes.getExecutionsStateMap().getOrDefault("FETCHING", 0),
+                                                j.jes.getExecutionsStateMap().getOrDefault("SLEEPING", 0),
+                                                j.jes.getExecutionsStateMap().getOrDefault("FINISHED", 0),
+                                                j.jes.getExecutionsStateMap().getOrDefault("ABORTED_TIMEOUT", 0),
+                                                j.jes.getExecutionsStateMap().getOrDefault("ABORTED_SIZE", 0),
+                                                j.jes.getExecutionsStateMap().getOrDefault("ABORTED_MANUAL", 0),
+                                                j.jes.getExecutionsStateMap().getOrDefault("FAILED", 0));
+                                    }
+                                }).collect(Collectors.toList());
 
-                    if (statuses.stream().allMatch(j -> State.RUNNING != j.jes.getState())
-                            && rethinkDbData.getQueuedUris().isEmpty()
-                            && jedisPool.getResource().keys("*").size() <= 1) {
-                        return true;
-                    }
-                    if (statuses.stream().anyMatch(j -> State.RUNNING == j.jes.getState())) {
-                        Description desc = new Description() {
-                            @Override
-                            public String value() {
-                                StringBuilder sb = new StringBuilder();
-                                try (Jedis jedis = jedisPool.getResource()) {
-                                    sb.append(String.format("Crawl is not finished, but redis chg keys are missing.\nRemaining REDIS keys: %s\n Queue count total: %s",
-                                            jedis.keys("*"),
-                                            jedis.get("QCT")));
-                                    Cursor c = conn.exec("db-getQueuedUris", r.table(Tables.URI_QUEUE.name));
-                                    c.forEach(v -> sb.append("\nURi in RethinkDB queue: ").append(v));
-                                } catch (DbConnectionException dbConnectionException) {
-                                    dbConnectionException.printStackTrace();
-                                } catch (DbQueryException dbQueryException) {
-                                    dbQueryException.printStackTrace();
+                        if (statuses.stream().allMatch(j -> State.RUNNING != j.jes.getState())
+                                && rethinkDbData.getQueuedUris().isEmpty()
+                                && jedis.keys("*").size() <= 1) {
+                            return true;
+                        }
+                        if (statuses.stream().anyMatch(j -> State.RUNNING == j.jes.getState())) {
+                            Description desc = new Description() {
+                                @Override
+                                public String value() {
+                                    StringBuilder sb = new StringBuilder();
+                                    try (Jedis jedis = jedisPool.getResource()) {
+                                        sb.append(String.format("Crawl is not finished, but redis chg keys are missing.\nRemaining REDIS keys: %s\n Queue count total: %s",
+                                                jedis.keys("*"),
+                                                jedis.get("QCT")));
+                                        Cursor c = conn.exec("db-getQueuedUris", r.table(Tables.URI_QUEUE.name));
+                                        c.forEach(v -> sb.append("\nURi in RethinkDB queue: ").append(v));
+                                    } catch (DbConnectionException dbConnectionException) {
+                                        dbConnectionException.printStackTrace();
+                                    } catch (DbQueryException dbQueryException) {
+                                        dbQueryException.printStackTrace();
+                                    }
+                                    return sb.toString();
                                 }
-                                return sb.toString();
-                            }
-                        };
-                        assertThat(emptyChgKeysCount).as(desc).withFailMessage("").hasValueLessThan(3);
+                            };
+                            assertThat(emptyChgKeysCount).as(desc).withFailMessage("").hasValueLessThan(3);
+                        }
+                        LOG.debug("Still running: {}", statuses.size());
+                        return false;
                     }
-                    LOG.debug("Still running: {}", statuses.size());
-                    return false;
                 });
         return null;
     }
@@ -315,9 +339,15 @@ public class CrawlRunner implements AutoCloseable {
     public static class RunningCrawl {
         String jobName;
         JobExecutionStatus jes;
+        CountDownLatch remainingSeeds;
 
         public JobExecutionStatus getStatus() {
             return jes;
+        }
+
+        public long awaitAllSeedsSubmitted(long timeout, java.util.concurrent.TimeUnit unit) throws InterruptedException {
+            remainingSeeds.await(timeout, unit);
+            return remainingSeeds.getCount();
         }
     }
 }

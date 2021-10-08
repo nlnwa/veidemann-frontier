@@ -36,10 +36,8 @@ public class LimitsCheck {
     /**
      * Checks that should be run after fetching a URI to see if the limits for crawling are reached.
      *
-     * @param frontier the frontier
-     * @param limits   the limits configuration
-     * @param status   the status object which might be updated by this method
-     * @param qUri     the URI to check
+     * @param limits the limits configuration
+     * @param status the status object which might be updated by this method
      * @return true if crawl should be stopped
      */
     public static boolean isLimitReached(CrawlLimitsConfig limits, StatusWrapper status) throws DbException {

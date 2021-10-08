@@ -36,6 +36,10 @@ public class CrawlExecutionHelpers {
      * This should be run regardless of if we fetched anything or if the fetch failed in any way.
      */
     public static void postFetchFinally(Frontier frontier, StatusWrapper status, QueuedUriWrapper qUri, long delayMs) {
+        postFetchFinally(frontier, status, qUri, delayMs, false);
+    }
+
+    public static void postFetchFinally(Frontier frontier, StatusWrapper status, QueuedUriWrapper qUri, long delayMs, boolean isTimeout) {
         MDC.put("eid", qUri.getExecutionId());
         MDC.put("uri", qUri.getUri());
         try {
@@ -70,7 +74,7 @@ public class CrawlExecutionHelpers {
         }
 
         try {
-            frontier.getCrawlQueueManager().releaseCrawlHostGroup(qUri.getCrawlHostGroup(), delayMs);
+            frontier.getCrawlQueueManager().releaseCrawlHostGroup(qUri.getCrawlHostGroup(), delayMs, isTimeout);
         } catch (Throwable t) {
             // An error here indicates unknown problems with DB communication. No idea how to handle that yet.
             LOG.error("Error releasing CrawlHostGroup: {}", t.toString(), t);
