@@ -36,7 +36,7 @@
         <io.opentracing.version>0.33.0</io.opentracing.version>
 
         <junit.jupiter.version>5.7.0</junit.jupiter.version>
-        <org.testcontainers.version>1.15.3</org.testcontainers.version>
+        <org.testcontainers.version>1.16.2</org.testcontainers.version>
 
         <!-- Docker auth credentials -->
         <!--suppress UnresolvedMavenProperty -->

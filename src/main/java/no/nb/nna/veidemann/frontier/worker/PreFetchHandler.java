@@ -104,7 +104,7 @@ public class PreFetchHandler {
             switch (check) {
                 case DENIED:
                     LOG.debug("DENIED");
-                    status.removeCurrentUri(qUri).saveStatus();
+                    status.saveStatus();
                     CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, 0);
                     return false;
                 case RETRY:

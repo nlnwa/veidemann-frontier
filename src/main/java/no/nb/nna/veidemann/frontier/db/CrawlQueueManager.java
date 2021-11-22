@@ -423,15 +423,15 @@ public class CrawlQueueManager implements AutoCloseable {
         }
     }
 
-    public boolean removeTmpCrawlHostGroup(QueuedUri qUri) {
-        return removeQUri(qUri, false);
+    public boolean removeTmpCrawlHostGroup(QueuedUri qUri, String tmpChgId, boolean deleteUri) {
+        return removeQUri(qUri, tmpChgId, deleteUri);
     }
 
     public boolean removeQUri(QueuedUri qUri) {
-        return removeQUri(qUri, true);
+        return removeQUri(qUri, qUri.getCrawlHostGroupId(), true);
     }
 
-    private boolean removeQUri(QueuedUri qUri, boolean deleteUri) {
+    private boolean removeQUri(QueuedUri qUri, String chgId, boolean deleteUri) {
         if (LOG.isTraceEnabled()) {
             String stack = Arrays.stream(new RuntimeException().getStackTrace())
                     .filter(s -> s.getClassName().contains("no.nb.nna"))
@@ -443,7 +443,7 @@ public class CrawlQueueManager implements AutoCloseable {
         try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
             long numRemoved = uriRemoveScript.run(ctx,
                     qUri.getId(),
-                    qUri.getCrawlHostGroupId(),
+                    chgId,
                     qUri.getExecutionId(),
                     qUri.getSequence(),
                     qUri.getEarliestFetchTimeStamp().getSeconds(),

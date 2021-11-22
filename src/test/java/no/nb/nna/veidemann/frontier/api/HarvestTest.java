@@ -455,6 +455,76 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
     }
 
     @Test
+    public void testDnsFailureOnceThenDeniedByRobots() throws Exception {
+        int seedCount = 1;
+        int linksPerLevel = 0;
+        int maxHopsFromSeed = 1;
+
+        scopeCheckerServiceMock.withMaxHopsFromSeed(maxHopsFromSeed);
+        harvesterMock.withLinksPerLevel(linksPerLevel);
+        dnsResolverMock.withFetchErrorForHostRequests("a.seed-000000.com", 1, 1);
+        robotsEvaluatorMock
+                .withFetchDenialForUrl("http://a.seed-000000.com");
+
+        ConfigObject job = crawlRunner.genJob("job1");
+        List<SeedAndExecutions> seeds = crawlRunner.genSeeds(seedCount, "a.seed", job);
+        RunningCrawl crawl = crawlRunner.runCrawl(job, seeds);
+        crawlRunner.awaitCrawlFinished(crawl);
+
+        assertThat(logServiceMock.crawlLogs).hasNumberOfRequests(1)
+                .hasRequestSatisfying(r -> {
+                    assertThat(r)
+                            .hasWarcId()
+                            .statusCodeEquals(PRECLUDED_BY_ROBOTS)
+                            .requestedUriEquals("http://a.seed-000000.com")
+                            .error().isNotNull().codeEquals(PRECLUDED_BY_ROBOTS);
+                });
+
+        assertThat(rethinkDbData)
+                .hasQueueTotalCount(0);
+
+        assertThat(rethinkDbData)
+                .jobExecutionStatuses().hasSize(1).hasEntrySatisfying(crawl.getStatus().getId(), j -> {
+                    assertThat(j)
+                            .hasState(JobExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(0)
+                            .documentsDeniedEquals(1)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(2)
+                            .documentsOutOfScopeEquals(0);
+                });
+        String crawlExecutionId1 = seeds.get(0).getCrawlExecution(job).get().getId();
+        assertThat(rethinkDbData)
+                .crawlExecutionStatuses().hasSize(seedCount)
+                .hasEntrySatisfying(crawlExecutionId1, s -> {
+                    assertThat(s)
+                            .hasState(CrawlExecutionStatus.State.FINISHED)
+                            .hasStartTime(true)
+                            .hasEndTime(true)
+                            .documentsCrawledEquals(0)
+                            .documentsDeniedEquals(1)
+                            .documentsFailedEquals(0)
+                            .documentsRetriedEquals(2)
+                            .documentsOutOfScopeEquals(0)
+                            .currentUriIdCountIsEqualTo(0);
+                });
+
+        assertThat(rethinkDbData).jobStatsMatchesCrawlExecutions();
+
+        assertThat(redisData)
+                .hasQueueTotalCount(0)
+                .crawlHostGroups().hasNumberOfElements(0);
+        assertThat(redisData)
+                .crawlExecutionQueueCounts().hasNumberOfElements(0);
+        assertThat(redisData)
+                .sessionTokens().hasNumberOfElements(0);
+        assertThat(redisData)
+                .readyQueue().hasNumberOfElements(0);
+    }
+
+    @Test
     public void testRecheckScope() throws Exception {
         int seedCount = 1;
         int linksPerLevel = 2;
