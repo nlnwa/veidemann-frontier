@@ -617,7 +617,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
 
         // Abort the second execution as soon as it is sleeping
-        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(5, TimeUnit.MILLISECONDS).pollInterval(5, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId2);
                     if (ces.getState() == CrawlExecutionStatus.State.SLEEPING) {
@@ -629,7 +629,7 @@ public class HarvestTest extends no.nb.nna.veidemann.frontier.testutil.AbstractI
 
 
         // Abort the third execution as soon as it is finished
-        await().pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
+        await().pollDelay(5, TimeUnit.MILLISECONDS).pollInterval(5, TimeUnit.MILLISECONDS).atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     CrawlExecutionStatus ces = DbService.getInstance().getExecutionsAdapter().getCrawlExecutionStatus(crawlExecutionId3);
                     if (ces.getState() == CrawlExecutionStatus.State.FINISHED) {
