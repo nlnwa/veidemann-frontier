@@ -75,6 +75,9 @@ public class Preconditions {
                 default:
                     frontier.writeLog(frontier, qUri);
             }
+            if (!qUri.isUnresolved()) {
+                status.removeCurrentUri(qUri);
+            }
             status.incrementDocumentsOutOfScope();
             frontier.getOutOfScopeHandlerClient().submitUri(qUri.getQueuedUri());
             return Futures.immediateFuture(PreconditionState.DENIED);
@@ -124,10 +127,9 @@ public class Preconditions {
                 ConfigObject politeness = frontier.getConfig(crawlConfig.getCrawlConfig().getPolitenessRef());
                 ConfigObject browserConfig = frontier.getConfig(crawlConfig.getCrawlConfig().getBrowserConfigRef());
 
-                boolean changedCrawlHostGroup = false;
+                String changedCrawlHostGroup = null;
                 if (!qUri.getCrawlHostGroupId().isEmpty() && !qUri.getQueuedUri().getId().isEmpty()) {
-                    changedCrawlHostGroup = true;
-                    frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(qUri.getQueuedUri());
+                    changedCrawlHostGroup = qUri.getCrawlHostGroupId();
                 }
                 qUri.setIp(result.getAddress().getHostAddress());
                 qUri.setResolved(politeness);
@@ -167,6 +169,9 @@ public class Preconditions {
                         LOG.error("Unable to update uri earliest fetch timestamp", e);
                     }
                 }
+                if (state == PreconditionState.DENIED && !qUri.getCrawlHostGroupId().isEmpty() && !qUri.getQueuedUri().getId().isEmpty()) {
+                    status.removeCurrentUri(qUri);
+                }
                 future.set(state);
             } catch (DbException e) {
                 future.setException(e);
@@ -203,13 +208,13 @@ public class Preconditions {
     }
 
     static class IsAllowedFunc implements Consumer<Boolean> {
-        private final boolean changedCrawlHostGroup;
+        private final String changedCrawlHostGroup;
         private final Frontier frontier;
         private final QueuedUriWrapper qUri;
         private final StatusWrapper status;
         private final SettableFuture<PreconditionState> future;
 
-        public IsAllowedFunc(boolean changedCrawlHostGroup, Frontier frontier, QueuedUriWrapper qUri, StatusWrapper status, SettableFuture<PreconditionState> future) {
+        public IsAllowedFunc(String changedCrawlHostGroup, Frontier frontier, QueuedUriWrapper qUri, StatusWrapper status, SettableFuture<PreconditionState> future) {
             this.changedCrawlHostGroup = changedCrawlHostGroup;
             this.frontier = frontier;
             this.qUri = qUri;
@@ -221,13 +226,19 @@ public class Preconditions {
         public void accept(Boolean isAllowed) {
             try {
                 if (isAllowed) {
-                    if (changedCrawlHostGroup) {
+                    if (changedCrawlHostGroup != null) {
+                        frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(qUri.getQueuedUri(), changedCrawlHostGroup, false);
                         frontier.getCrawlQueueManager().addToCrawlHostGroup(qUri.getQueuedUri());
                         future.set(PreconditionState.RETRY);
                     } else {
                         future.set(PreconditionState.OK);
                     }
                 } else {
+                    if (changedCrawlHostGroup != null) {
+                        frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(qUri.getQueuedUri(), changedCrawlHostGroup, true);
+                    } else {
+                        status.removeCurrentUri(qUri);
+                    }
                     LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
                     qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());
                     status.incrementDocumentsDenied(1L);
