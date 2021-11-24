@@ -67,8 +67,11 @@ public class CrawlQueueWorker implements AutoCloseable {
                 if (moved > 0) {
                     LOG.debug("{} CrawlExecutions moved from running state to timeout state", moved);
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
             } catch (Throwable t) {
-                LOG.error("Error running chg queue manager script", t);
+                t.printStackTrace();
+                System.exit(1);
             }
         }
     };
@@ -93,8 +96,11 @@ public class CrawlQueueWorker implements AutoCloseable {
                     p.sync();
                     LOG.debug("Deleted {} URIs from crawl queue", deleted);
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
             } catch (Throwable t) {
-                LOG.error("Error running chg queue manager script", t);
+                t.printStackTrace();
+                System.exit(1);
             }
         }
     };
@@ -122,6 +128,11 @@ public class CrawlQueueWorker implements AutoCloseable {
 
                     chgId = ctx.getJedis().lpop(CHG_TIMEOUT_KEY);
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
+            } catch (Throwable t) {
+                t.printStackTrace();
+                System.exit(1);
             }
         }
     };
@@ -143,6 +154,9 @@ public class CrawlQueueWorker implements AutoCloseable {
                 }
             } catch (Exception e) {
                 e.printStackTrace();
+            } catch (Throwable t) {
+                t.printStackTrace();
+                System.exit(1);
             }
         }
     };
@@ -154,6 +168,11 @@ public class CrawlQueueWorker implements AutoCloseable {
                 frontier.getCrawlQueueManager().pause(DbService.getInstance().getExecutionsAdapter().getDesiredPausedState());
             } catch (DbException e) {
                 LOG.warn("Could not read pause state", e);
+            } catch (Exception e) {
+                e.printStackTrace();
+            } catch (Throwable t) {
+                t.printStackTrace();
+                System.exit(1);
             }
         }
     };
@@ -177,6 +196,11 @@ public class CrawlQueueWorker implements AutoCloseable {
                                 LOG.warn("Could not update jobExecutionState", e);
                             }
                         });
+            } catch (Exception e) {
+                e.printStackTrace();
+            } catch (Throwable t) {
+                t.printStackTrace();
+                System.exit(1);
             }
         }
     };
