@@ -111,12 +111,11 @@ public class CrawlQueueWorker implements AutoCloseable {
             Error err = ExtraStatusCodes.RUNTIME_EXCEPTION.toFetchError("Timeout waiting for Harvester");
 
             try (JedisContext ctx = JedisContext.forPool(jedisPool)) {
-                String chgId = ctx.getJedis().lpop(CHG_TIMEOUT_KEY);
-                while (chgId != null) {
+                for (String chgId = ctx.getJedis().lpop(CHG_TIMEOUT_KEY); chgId != null; chgId = ctx.getJedis().lpop(CHG_TIMEOUT_KEY)) {
                     try {
                         CrawlHostGroup chg = frontier.getCrawlQueueManager().getCrawlHostGroup(chgId);
                         if (chg.getCurrentUriId().isEmpty()) {
-                            frontier.getCrawlQueueManager().releaseCrawlHostGroup(ctx, chg.getId(), chg.getSessionToken(), 0, true);
+                            frontier.getCrawlQueueManager().releaseCrawlHostGroup(ctx, chgId, chg.getSessionToken(), 0, true);
                             continue;
                         }
                         PostFetchHandler postFetchHandler = new PostFetchHandler(chg, frontier, false);
@@ -125,8 +124,6 @@ public class CrawlQueueWorker implements AutoCloseable {
                     } catch (Exception e) {
                         LOG.warn("Error while getting chg {}", chgId, e);
                     }
-
-                    chgId = ctx.getJedis().lpop(CHG_TIMEOUT_KEY);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
