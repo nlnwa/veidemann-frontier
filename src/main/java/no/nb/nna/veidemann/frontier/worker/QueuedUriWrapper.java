@@ -244,9 +244,9 @@ public class QueuedUriWrapper {
         return this;
     }
 
-    public boolean addUriToQueue(StatusWrapper status) throws DbException {
+    public boolean addUriToQueue() throws DbException {
         if (frontier.getCrawlQueueManager().uriNotIncludedInQueue(this)) {
-            return forceAddUriToQueue(status);
+            return forceAddUriToQueue();
         }
         LOG.debug("Found already included URI: {}, skipping.", getUri());
         setError(ExtraStatusCodes.ALREADY_SEEN.toFetchError("Uri was already harvested"));
@@ -259,7 +259,7 @@ public class QueuedUriWrapper {
      * @return
      * @throws DbException
      */
-    public boolean forceAddUriToQueue(StatusWrapper status) throws DbException {
+    public boolean forceAddUriToQueue() throws DbException {
         if (!shouldInclude()) {
             return false;
         }

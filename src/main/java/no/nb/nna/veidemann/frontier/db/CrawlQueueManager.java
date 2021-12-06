@@ -427,8 +427,12 @@ public class CrawlQueueManager implements AutoCloseable {
         return removeQUri(qUri, tmpChgId, deleteUri);
     }
 
-    public boolean removeQUri(QueuedUri qUri) {
-        return removeQUri(qUri, qUri.getCrawlHostGroupId(), true);
+    public boolean removeQUri(QueuedUriWrapper qUri) {
+        QueuedUri toBeRemoved = qUri.getQueuedUriForRemoval();
+        if (toBeRemoved.getId().isEmpty()) {
+            return false;
+        }
+        return removeQUri(qUri.getQueuedUriForRemoval(), qUri.getCrawlHostGroupId(), true);
     }
 
     private boolean removeQUri(QueuedUri qUri, String chgId, boolean deleteUri) {

@@ -72,14 +72,14 @@ public class OutlinkHandler {
                 case OK:
                     LOG.debug("Found new URI: {}, queueing.", outUri.getUri());
                     outUri.setPriorityWeight(status.getCrawlConfig().getCrawlConfig().getPriorityWeight());
-                    if (outUri.addUriToQueue(status)) {
+                    if (outUri.addUriToQueue()) {
                         wasQueued = true;
                     }
                     break;
                 case RETRY:
                     LOG.debug("Failed preconditions for: {}, queueing for retry.", outUri.getUri());
                     outUri.setPriorityWeight(status.getCrawlConfig().getCrawlConfig().getPriorityWeight());
-                    if (outUri.addUriToQueue(status)) {
+                    if (outUri.addUriToQueue()) {
                         wasQueued = true;
                     }
                     break;

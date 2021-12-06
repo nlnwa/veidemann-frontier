@@ -131,10 +131,11 @@ public class PostFetchHandler {
             MDC.put("eid", qUri.getExecutionId());
             MDC.put("uri", qUri.getUri());
 
+            frontier.getCrawlQueueManager().removeQUri(qUri);
             status.incrementDocumentsCrawled()
                     .incrementBytesCrawled(metrics.getBytesDownloaded())
                     .incrementUrisCrawled(metrics.getUriCount())
-                    .removeCurrentUri(qUri).saveStatus();
+                    .saveStatus();
         }
     }
 
@@ -149,13 +150,13 @@ public class PostFetchHandler {
             MDC.put("uri", qUri.getUri());
 
             PreconditionState state = ErrorHandler.fetchFailure(frontier, status, qUri, error);
-            switch (state) {
+            status.saveStatus();
+            switch(state) {
                 case DENIED:
-                    status.removeCurrentUri(qUri).saveStatus();
+                    frontier.getCrawlQueueManager().removeQUri(qUri);
                     break;
                 case RETRY:
                     qUri.save();
-                    status.addCurrentUri(qUri).saveStatus();
                     break;
             }
         }

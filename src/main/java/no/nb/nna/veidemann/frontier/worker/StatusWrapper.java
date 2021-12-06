@@ -27,7 +27,6 @@ import no.nb.nna.veidemann.api.config.v1.Kind;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatus;
 import no.nb.nna.veidemann.api.frontier.v1.CrawlExecutionStatusChange;
 import no.nb.nna.veidemann.api.frontier.v1.JobExecutionStatus;
-import no.nb.nna.veidemann.api.frontier.v1.QueuedUri;
 import no.nb.nna.veidemann.commons.db.DbException;
 import no.nb.nna.veidemann.commons.db.DbQueryException;
 import no.nb.nna.veidemann.commons.db.DbService;
@@ -120,20 +119,6 @@ public class StatusWrapper {
                 }
                 if (change.hasError()) {
                     rMap.with("error", ProtoUtils.protoToRethink(change.getError()));
-                }
-                if (change.hasAddCurrentUri()) {
-                    rMap.with("currentUriId", doc.g("currentUriId").default_(r.array()).setUnion(r.array(change.getAddCurrentUri().getId())));
-                }
-
-                // Remove queued uri from queue if change request asks for deletion
-                if (change.hasDeleteCurrentUri()) {
-                    boolean deleted = frontier.getCrawlQueueManager()
-                            .removeQUri(change.getDeleteCurrentUri());
-
-                    if (deleted) {
-                        rMap.with("currentUriId", doc.g("currentUriId")
-                                .default_(r.array()).setDifference(r.array(change.getDeleteCurrentUri().getId())));
-                    }
                 }
 
                 return doc.merge(rMap)
@@ -361,26 +346,6 @@ public class StatusWrapper {
             throw new IllegalStateException("CES is dirty " + change);
         }
         return status.build();
-    }
-
-    public StatusWrapper addCurrentUri(QueuedUri uri) {
-        getChange().setAddCurrentUri(uri);
-        return this;
-    }
-
-    public StatusWrapper addCurrentUri(QueuedUriWrapper uri) {
-        getChange().setAddCurrentUri(uri.getQueuedUri());
-        return this;
-    }
-
-    public StatusWrapper removeCurrentUri(QueuedUri uri) {
-        getChange().setDeleteCurrentUri(uri);
-        return this;
-    }
-
-    public StatusWrapper removeCurrentUri(QueuedUriWrapper uri) {
-        getChange().setDeleteCurrentUri(uri.getQueuedUriForRemoval());
-        return this;
     }
 
     public StatusWrapper setError(Error error) {
