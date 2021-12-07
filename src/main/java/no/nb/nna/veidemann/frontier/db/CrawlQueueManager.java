@@ -122,7 +122,7 @@ public class CrawlQueueManager implements AutoCloseable {
         jobExecutionGetScript = new JobExecutionGetScript();
         jobExecutionUpdateScript = new JobExecutionUpdateScript();
 
-        this.crawlQueueWorker = new CrawlQueueWorker(frontier, conn, jedisPool);
+        this.crawlQueueWorker = new CrawlQueueWorker(frontier, jedisPool);
         this.nextFetchSupplier = new TimeoutSupplier<>(64, 15, TimeUnit.SECONDS, 6,
                 () -> getPrefetchHandler(), p -> releaseCrawlHostGroup(p.getQueuedUri().getCrawlHostGroupId(), RESCHEDULE_DELAY));
     }
