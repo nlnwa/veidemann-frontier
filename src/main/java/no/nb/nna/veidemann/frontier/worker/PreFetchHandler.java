@@ -94,7 +94,7 @@ public class PreFetchHandler {
         try {
             if (!Preconditions.crawlExecutionOk(frontier, status)) {
                 LOG.debug("DENIED");
-                status.removeCurrentUri(qUri).saveStatus();
+                frontier.getCrawlQueueManager().removeQUri(qUri);
                 CrawlExecutionHelpers.postFetchFinally(frontier, status, qUri, 0);
                 return false;
             }
@@ -133,7 +133,7 @@ public class PreFetchHandler {
         qUri.setFetchStartTimeStamp(ProtoUtils.getNowTs());
         qUri.generateSessionToken();
         frontier.getCrawlQueueManager().updateCrawlHostGroup(qUri.getCrawlHostGroup());
-        status.addCurrentUri(this.qUri).setState(State.FETCHING).saveStatus();
+        status.setState(State.FETCHING).saveStatus();
 
         LOG.debug("Fetching " + qUri.getUri());
         return PageHarvestSpec.newBuilder()

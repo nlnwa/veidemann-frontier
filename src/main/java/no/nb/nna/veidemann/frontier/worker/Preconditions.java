@@ -76,7 +76,7 @@ public class Preconditions {
                     frontier.writeLog(frontier, qUri);
             }
             if (!qUri.isUnresolved()) {
-                status.removeCurrentUri(qUri);
+                frontier.getCrawlQueueManager().removeQUri(qUri);
             }
             status.incrementDocumentsOutOfScope();
             frontier.getOutOfScopeHandlerClient().submitUri(qUri.getQueuedUri());
@@ -170,7 +170,7 @@ public class Preconditions {
                     }
                 }
                 if (state == PreconditionState.DENIED && !qUri.getCrawlHostGroupId().isEmpty() && !qUri.getQueuedUri().getId().isEmpty()) {
-                    status.removeCurrentUri(qUri);
+                    frontier.getCrawlQueueManager().removeQUri(qUri);
                 }
                 future.set(state);
             } catch (DbException e) {
@@ -237,7 +237,7 @@ public class Preconditions {
                     if (changedCrawlHostGroup != null) {
                         frontier.getCrawlQueueManager().removeTmpCrawlHostGroup(qUri.getQueuedUri(), changedCrawlHostGroup, true);
                     } else {
-                        status.removeCurrentUri(qUri);
+                        frontier.getCrawlQueueManager().removeQUri(qUri);
                     }
                     LOG.info("URI '{}' precluded by robots.txt", qUri.getUri());
                     qUri.setError(ExtraStatusCodes.PRECLUDED_BY_ROBOTS.toFetchError());

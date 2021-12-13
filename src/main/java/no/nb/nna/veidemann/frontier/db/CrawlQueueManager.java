@@ -122,7 +122,7 @@ public class CrawlQueueManager implements AutoCloseable {
         jobExecutionGetScript = new JobExecutionGetScript();
         jobExecutionUpdateScript = new JobExecutionUpdateScript();
 
-        this.crawlQueueWorker = new CrawlQueueWorker(frontier, conn, jedisPool);
+        this.crawlQueueWorker = new CrawlQueueWorker(frontier, jedisPool);
         this.nextFetchSupplier = new TimeoutSupplier<>(64, 15, TimeUnit.SECONDS, 6,
                 () -> getPrefetchHandler(), p -> releaseCrawlHostGroup(p.getQueuedUri().getCrawlHostGroupId(), RESCHEDULE_DELAY));
     }
@@ -427,8 +427,12 @@ public class CrawlQueueManager implements AutoCloseable {
         return removeQUri(qUri, tmpChgId, deleteUri);
     }
 
-    public boolean removeQUri(QueuedUri qUri) {
-        return removeQUri(qUri, qUri.getCrawlHostGroupId(), true);
+    public boolean removeQUri(QueuedUriWrapper qUri) {
+        QueuedUri toBeRemoved = qUri.getQueuedUriForRemoval();
+        if (toBeRemoved.getId().isEmpty()) {
+            return false;
+        }
+        return removeQUri(qUri.getQueuedUriForRemoval(), qUri.getCrawlHostGroupId(), true);
     }
 
     private boolean removeQUri(QueuedUri qUri, String chgId, boolean deleteUri) {

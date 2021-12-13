@@ -28,6 +28,7 @@ import org.testcontainers.containers.Network;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.startupcheck.IsRunningStartupCheckStrategy;
 import org.testcontainers.containers.startupcheck.OneShotStartupCheckStrategy;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 import redis.clients.jedis.JedisPool;
@@ -50,7 +51,11 @@ public class AbstractIntegrationTest {
             .withLogConsumer(new SkipUntilFilter("Ready to accept connections", new Slf4jLogConsumer(LoggerFactory.getLogger("REDIS"))))
             .withStartupCheckStrategy(
                     new IsRunningStartupCheckStrategy().withTimeout(Duration.ofSeconds(60))
+            )
+            .waitingFor(
+                    Wait.forLogMessage(".*Ready to accept connections.*", 1)
             );
+
     @Container
     public static GenericContainer rethinkDb = new GenericContainer(DockerImageName.parse("rethinkdb:2.4.1-buster-slim"))
             .withNetwork(network)
@@ -58,6 +63,8 @@ public class AbstractIntegrationTest {
             .withExposedPorts(28015)
             .withStartupCheckStrategy(
                     new IsRunningStartupCheckStrategy().withTimeout(Duration.ofSeconds(60))
+            ).waitingFor(
+                    Wait.forLogMessage(".*Server ready.*", 1)
             );
     @Container
     public static GenericContainer dbInitializer = new GenericContainer(
@@ -68,8 +75,22 @@ public class AbstractIntegrationTest {
             .withEnv("DB_PORT", "28015")
             .withEnv("DB_USER", "admin")
             .withStartupCheckStrategy(
-                    new OneShotStartupCheckStrategy().withTimeout(Duration.ofSeconds(60))
-            );
+                    new OneShotStartupCheckStrategy().withTimeout(Duration.ofSeconds(60)))
+            .waitingFor(
+                    Wait.forLogMessage(".*DB initialized.*", 1));
+    @Container
+    public GenericContainer queueWorker = new GenericContainer(DockerImageName.parse("ghcr.io/nlnwa/veidemann-frontier-queue-workers:0.1.0"))
+            .withNetwork(network)
+            .dependsOn(dbInitializer, redis)
+            .withEnv("DB_HOST", "db")
+            .withEnv("DB_USER", "admin")
+            .withEnv("REDIS_HOST", "redis")
+            .withEnv("LOG_LEVEL", "debug")
+            .withStartupCheckStrategy(
+                    new IsRunningStartupCheckStrategy().withTimeout(Duration.ofSeconds(60)))
+            .waitingFor(
+                    Wait.forLogMessage(".*Connected to Redis.*", 1));
+
     public Settings settings;
     RethinkDbConnection conn;
     FrontierApiServer apiServer;
@@ -90,7 +111,6 @@ public class AbstractIntegrationTest {
     public RethinkDbData rethinkDbData;
     public MockTracer tracer;
     public CrawlRunner crawlRunner;
-
 
     private static String getStringProperty(String name, String def) {
         String prop = System.getProperty(name);

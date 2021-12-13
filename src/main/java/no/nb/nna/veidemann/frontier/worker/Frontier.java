@@ -215,6 +215,7 @@ public class Frontier implements AutoCloseable {
             }
 
             ListenableFuture<PreconditionState> future = Preconditions.checkPreconditions(this, crawlConfig, status, qUri);
+
             Futures.transformAsync(future, c -> {
                 switch (c) {
                     case DENIED:
@@ -246,7 +247,7 @@ public class Frontier implements AutoCloseable {
 
                 // Prefetch ok, add to queue
                 try {
-                    boolean wasAdded = qUri.addUriToQueue(status);
+                    boolean wasAdded = qUri.addUriToQueue();
                     if (wasAdded) {
                         LOG.debug("Seed '{}' added to queue", qUri.getUri());
                     } else {
