@@ -31,7 +31,7 @@
         <veidemann.rethinkdbadapter.version>0.8.0</veidemann.rethinkdbadapter.version>
 
         <com.github.netflix.concurrency-limits.version>0.3.7</com.github.netflix.concurrency-limits.version>
-        <log4j.version>2.13.3</log4j.version>
+        <log4j.version>2.16.0</log4j.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
         <io.opentracing.version>0.33.0</io.opentracing.version>
 
