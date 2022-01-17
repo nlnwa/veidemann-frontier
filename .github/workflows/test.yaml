@@ -23,13 +23,7 @@ jobs:
         with:
           java-version: '11'
           distribution: 'adopt'
-
-      - name: Cache Maven repository
-        uses: actions/cache@v2
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
+          cache: 'maven'
 
       - name: Run tests
-        run: mvn --batch-mode test
+        run: ./mvnw -B test

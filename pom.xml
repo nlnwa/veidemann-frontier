@@ -24,6 +24,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
+        <docker.tag>${project.version}</docker.tag>
 
         <veidemann.api.version>v1.0.0-beta.25</veidemann.api.version>
         <veidemann.commons.version>v0.7.0</veidemann.commons.version>
@@ -347,7 +348,7 @@
                 <artifactId>jib-maven-plugin</artifactId>
                 <configuration>
                     <to>
-                        <image>ghcr.io/nlnwa/${project.artifactId}:${project.version}</image>
+                        <image>ghcr.io/nlnwa/${project.artifactId}:${docker.tag}</image>
                     </to>
                     <container>
                         <ports>
@@ -390,45 +391,6 @@
     </build>
 
     <profiles>
-        <profile>
-            <id>docker-build</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>com.google.cloud.tools</groupId>
-                        <artifactId>jib-maven-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <phase>compile</phase>
-                                <goals>
-                                    <goal>dockerBuild</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
-        <profile>
-            <id>docker-build-and-push</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>com.google.cloud.tools</groupId>
-                        <artifactId>jib-maven-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <phase>compile</phase>
-                                <goals>
-                                    <goal>build</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
         <profile>
             <id>integration-tests</id>
             <build>
