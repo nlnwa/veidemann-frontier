@@ -23,12 +23,12 @@ flowchart TD
     classDef out fill:#ff5;
     classDef proc fill:#efa;
 
-    s1[Hent neste\n ledige CHG] --> s2[Hent første\n URI fra CHG] --> s3[[Evaluering av URL]]:::proc
+    s1[Reserver neste\n ledige HOST] --> s2[Hent første\n URI fra HOST] --> s3[[Evaluering av URL]]:::proc
     s3 -->|Skal ikke høstes| s2
     s3 -->|Skal høstes| s6[Høst URL]
-    s6 --> s7[Sjekk når URL skal\n tilbake i køen] --> s8[Legg tilbake i kø] --> s9[Beregn neste TS for CHG] --> s10[Legg CHG tilbake i kø]
+    s6 --> s7[Beregn neste\n høstetidspunkt (TS) for URL] --> s8[Oppdater kø] --> s9[Frigjør HOST]
     s6 --> l1{For alle lenker\n i dokumentet} --> l2[[Evaluering av URL]]:::proc
-    l2 -->|Skal høstes| l3[Sjekk når URL\n tidligst kan høstes] --> l4[Legg i kø] --> l1
+    l2 -->|Skal høstes| l3[Beregn neste\n høstetidspunkt (TS) for URL] --> l4[Oppdater kø] --> l1
     l2 -->|Skal ikke høstes| l1
 ```
 
@@ -47,29 +47,28 @@ flowchart TD
     e6 -->|Nei| e9
 ```
 
-## CHG
-
-- **Key:** Busy TS ID
-- **Value:**
 
 ## Host
 
-- **Key:** Busy TS ID
+- **Key:** Busy TS HOST
 - **Value:** Response time
+
 
 ## URL queue
 
-- **Key:** CHG TS URL
-- **Val:** LastFetch Error Cookies?
+- **Key:** HOST TS URL
+- **Val:** LastFetch Error
+
 
 ## Cookie jar
 
 - **Key:** HOST
 - **Val:** Cookies
 
+
 # Utfordringer
 
-* Host reservasjon service
+* Host reservation service
 * Evaluering av config (scope)
 * Statistikk
     * I hvilken grad overholdes høstefrekvens-kontrakt
