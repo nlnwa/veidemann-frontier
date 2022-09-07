@@ -17,6 +17,8 @@
 | 13 |            |          |            |         |              |          |
 | 14 |            |          |            |         |              | &check;  |
 
+### Hovedrutine
+
 ```mermaid
 flowchart TD
     classDef in fill:#5d7;
@@ -32,7 +34,7 @@ flowchart TD
     l2 -->|Skal ikke høstes| l1
 ```
 
-Prosedyre for evaluering av URL
+### Prosedyre for evaluering av URL
 
 ```mermaid
 flowchart TD
@@ -57,7 +59,7 @@ flowchart TD
 ## URL queue
 
 - **Key:** HOST TS URL
-- **Val:** LastFetch Error
+- **Val:** LastFetch ErrorCount NotFoundCount
 
 
 ## Cookie jar
