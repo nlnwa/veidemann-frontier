@@ -1,3 +1,5 @@
+# Host reservation service
+
 ``` go
 func ReserveNextHost() HOST
     GET first HOST from Hosttable WHERE Busy == false
