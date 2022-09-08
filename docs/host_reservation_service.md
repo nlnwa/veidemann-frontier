@@ -4,7 +4,7 @@
 - **Key:** Busy TS HOST
 - **Value:** NIL
 
-### External service
+## External service
 ``` go
 func ReserveNextHost() HOST
     GET first HOST from Hosttable WHERE Busy == false
@@ -18,7 +18,7 @@ func ReleaseHost(HOST)
     SET Busy = false
 ```
 
-### Internal service
+## Internal service
 Background service to ensure that no Host stays in busy state forever
 ``` go
 REPEAT EVERY x seconds:

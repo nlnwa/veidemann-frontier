@@ -58,13 +58,13 @@ flowchart TD
 
 ## URL queue
 
-- **Key:** HOST TS URL
+- **Key:** HOST TS COLLECTION URL
 - **Val:** LastFetch ErrorCount NotFoundCount
 
 
 ## Cookie jar
 
-- **Key:** HOST
+- **Key:** COLLECTION HOST
 - **Val:** Cookies
 
 
@@ -84,3 +84,11 @@ flowchart TD
 
 * Bare hostbasert politeness
 * Fjerne collections
+
+
+# Collections
+
+Hvis vi skal beholde collections, så bør disse også påvirke selve innhøstingen og ikke bare være en måte å navngi
+WARC-filer på som i dag. Et forslag er å inkludere collection som en del av URL. Hvis samme seed puttes i flere
+collections vil URLene høstes flere ganger helt uavhengig av hverandre (politeness blir likevel respektert). Denne
+løsningen kan brukes for å høste samme nettsted med og uten pålogging eller med forskjellige browserinnstillinger.
