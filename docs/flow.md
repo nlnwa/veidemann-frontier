@@ -71,7 +71,7 @@ flowchart TD
 # Utfordringer
 
 * [Host reservation service](host_reservation_service.md)
-* Evaluering av config (scope)
+* [Evaluering av config (scope)](evaluation_of_scope.md)
 * Statistikk
     * I hvilken grad overholdes høstefrekvens-kontrakt
     * Rapporter basert på domene og tid
