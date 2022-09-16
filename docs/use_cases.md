@@ -35,9 +35,6 @@ og ikke gjemt bak javascript meny som i tilfellet Sametinget.
 
 Samisk språk bruker prefikset `/hovedportal/` så høsting av flere språk kan gjøres i samme kolleksjon da ingen URL er tvetydig.
 
-
-
-
 ### Eksempel 3: [Stortinget](https://stortinget.no) (prefiks)
 
 Språk er bestemt av en prefiks til sti:
@@ -49,3 +46,47 @@ Det er lenker til alle språk på forsiden og alle interne lenker inkluderer
 prefiks.
 
 Kan høstes til samme kolleksjon.
+
+## [Høste nettsted inkludert kontekst som omfatter andre nettsteder](#kontekst)
+
+### Eksempel: [Faktisk.](https://www.faktisk.no/)
+
+URL:
+https://www.faktisk.no/artikler/0rg41/hvor-mye-strom-selger-vi-til-utlandet
+
+```javascript
+// Document link references
+Array.from(document.links).map(_ => _.href)
+  // but only http/https links
+  .filter(_ => _.startsWith("http"))
+  // and not internal links.
+  .filter(_ => ! _.startsWith("https://www.faktisk.no/"))
+
+// Output
+[
+  "https://www.ssb.no/energi-og-industri/energi/statistikk/elektrisitet/artikler/tidenes-hoyeste-krafteksport-i-2021",
+  "https://www.tu.no/artikler/her-er-alle-norges-utenlandskabler/513908?key=CBQpXqRD",
+  "https://www.tv2.no/nyheter/innenriks/ber-kraftprodusentene-spare-pa-vannet-til-vinteren/15059943/",
+  "https://www.tu.no/artikler/statnett-tjente-fire-milliarder-pa-utenlandskablene-i-2021/516293",
+  "https://www.ssb.no/energi-og-industri/energi/statistikk/elektrisitet/artikler/tidenes-hoyeste-krafteksport-i-2021",
+  "https://www.nordpoolgroup.com/en/maps/#/nordicc",
+  "https://www.nrk.no/nordland/strom_-midt-norge-og-nord-norge-star-for-80-prosent-av-stromeksporten-1.16101718",
+  "https://www.nrk.no/nordland/stromprisene-stiger-raskt-i-midt-norge-og-nord-norge-_-ekspertene-anbefaler-fastpris-1.16096744",
+  "https://energiogklima.no/to-grader/ekspertintervju/ekspertintervjuet-slik-virker-kraftmarkedet/",
+  "https://www.nve.no/media/14410/oppsummering-av-innrapportert-produksjon-i-soerlige-norge-no1-no2-og-no5-uke-35.pdf",
+  "https://www.nve.no/nytt-fra-nve/nyheter-energi/norge-importerte-mer-enn-vi-eksporterte-i-2019-men-bare-sa-vidt/",
+  "http://presse.no/pfu/etiske-regler/vaer-varsom-plakaten/",
+  "https://www.nored.no/Redaktoeransvar/Redaktoerplakaten",
+  "https://www.facebook.com/faktisk",
+  "https://twitter.com/faktisk_no"
+]
+```
+
+I paradigmet med deklarativ innhøsting vil utlenker bli lagt i kø hvis
+det finnes en seed med profil som har utlenke i kikkerten ("scope").
+
+Utlenker kan havne i samme eller andre kolleksjoner?
+
+
+### Eksempel: [Wikipedia](https://www.wikipedia.no/)
+TBD
