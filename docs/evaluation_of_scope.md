@@ -2,6 +2,18 @@
 
 ## Definisjoner
 
+### Nivå vs. Dybde vs. Hopp fra seed
+Analogt med dykking eller graving vil høsting av en seed starte på overflaten (dybde 0) og utlenker
+høstes på neste nivå.
+
+Hvis vi snakker om høsting på et eller annet gitt nivå er det ikke mulig å vite hva det betyr uten å definere startnivå.
+F.eks. lider heis av dette problemet og det merkes derfor som regel hvilken knapp som er på overflaten.
+
+1. Dybde 0 er det samme som 1. nivå er det samme som 0 hopp fra seed er det samme som seed URL
+er det samme som forsiden.
+2. Dybde 1 er det samme som 2. nivå er det samme som 1 hopp fra seed er det samme som utlenker hos seed URL.
+3. ...
+
 ### Seed deaktivert
 Å deaktivere en SEED utsetter høsting av hele treet av URLer som er i skopet til SEED sine profiler.
 
@@ -21,15 +33,45 @@ Bidrar ikke til utlenker. Kan føre til at URL som ikke lenger er i skopet blir 
 ### Slette collection
 Alle URLer i kø assosiert med COLLECTION blir fjernet fra kø automatisk.
 
+### Prioritering mellom forskjellige collections på samme host
+For å kunne prioritere en collection over en annen på samme host kan det tenkes at en collection
+konfigureres med en vekt (et tall mellom 0 og 1) som representerer sjansen for at en URL
+gir fra seg plassen i køen til en annen collection.
+
+Det er ikke nødvendig å ta hensyn til vekt hvis det ikke er kniving om plassen i køen på et gitt tidspunkt.
+
+### Prioritering mellom forskjellige URLer for samme collection på samme host med samme profil.
+Det kan tenkes at det velges tilfeldig mellom et sett av URLer med samme collection på somme host som alle er
+klare til å høstes på et gitt tidspunkt.
+
+### Prioritering mellom forskjellige profiler
+Det kan tenkes at to profiler som er konfigurert på samme seed "krangler" om å høste et sett av URLer i køen
+på samme host.
+
+Eksempel:
+- En profil "forsider" er konfigurert til å høste med en frekvens på 1 gang per time til og med dybde 0.
+- En annen profil "daglig" er konfigurert til å høste med en frekvens på 1 gang per dag til og med dybde 2.
+
+Hvis det er mange URLer på dybde 1 og 2 i køen (pga. skopet til "daglig" profil) vil det potensielt få konsekvenser
+for frekvensen til profilen "forsider".
+
+Det kan tenkes at en profil konfigureres med en vekt som representerer sjansen for at en URL gir fra seg plassen i 
+køen til en annen profil.
+
+La oss si at det på et gitt tidspunkt er 20 URLer med samme collection og på samme host som er klare til å høstes:
+- 1 i skopet til profil "forsider"
+- 19 i skopet til profil "daglig".
+
+Hvis profil "daglig" er konfigurert med en vekt 0.9 vil det si at (i det lange løp) vil "daglig" profil
+gi fra seg plassen i køen 18 av 20 ganger til profil "forsider".
+
 ## Hvordan starte høsting
+Å starte en seed er det samme som å legge til seedens URL som utlenke i kontekst
+av profilens collection, med alle verdier nullstilt (dybde, osv.).
 
 - En seed startes i kontekst av en / flere profiler.
 - En profil starter alle seed som er assosiert med seg selv i kontekst av seg selv
 - En samling starter alle profiler som har den konfigurert.
-
-## Starte seed (legge seed URL i kø)
-Å starte en seed er det samme som å legge til en utlenke i kontekst
-av profilens samling, med alle verdier nullstilt (dybde, osv.).
 
 ## Høste URL som ligger i kø
 Gitt en kontekst med COLLECTION, URL, SEED, DEPTH, LENGTH, TIME_TO_LIVE, LAST_FETCH_TIME
@@ -64,7 +106,7 @@ er følgende en algoritme for å behandle utlenker:
    1. Hvis URL er i skopet og ikke ligger i kø så legges URL til i kø.
    3. Hvis URL er i skopet og ligger i kø med samme SEED oppdateres URL i kø.
    4. Hvis URL er i skopet og ligger i kø med annen SEED må det tas stilling til
-   om:
+   hvilken SEED som benyttes:
       1. URL er helt lik SEED i kontekst. Isåfall bruk SEED i kontekst.
       Spesifikke SEED trumfer.
       2. URL er helt lik SEED i kø. Isåfall bruk SEED i kø.
@@ -76,15 +118,13 @@ er følgende en algoritme for å behandle utlenker:
       Isåfall velg det som gir tidligste neste høstetidspunkt?
       3. URL deler ikke domene med noen av dem.
       Isåfall velg det som gir tidligste neste høstetidspunkt?
-
    5. Hvis URL ikke er i skopet og ligger i kø med samme SEED må det tas
    stilling til om URL skal fjernes fra kø eller ikke ved å sammenligne dybde ol.
    6. Hvis URL ikke er i skopet og ligger i kø med annen SEED; ignorer.
    7. Hvis URL ikke er i skopet og ikke ligger i kø så ignoreres URL.
 
-Algoritmen ignorerer det faktum at profiler kan deaktiveres. Det må tas stilling til.
-Hvis vi antar at bare aktiverte profiler hentes i 1. steg så får det konsekvensen at
-URL i kø muligens slettes i steg IV. Kanskje er det ikke som er ønskelig.
+Punkt 2.4. er vanskeligst å definere. Hvis en URL i kø "bytter" SEED får det konsekvenser
+for skopet i neste høsting.
 
 ## Notater
 - En seed URL som er i skopet til profiler med ulik COLLECTION blir
