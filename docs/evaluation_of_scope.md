@@ -66,16 +66,19 @@ Hvis profil "daglig" er konfigurert med en vekt 0.9 vil det si at (i det lange l
 gi fra seg plassen i køen 18 av 20 ganger til profil "forsider".
 
 ## Hvordan starte høsting
-Å starte en seed er det samme som å legge til seedens URL som utlenke i kontekst
-av profilens collection, med alle verdier nullstilt (dybde, osv.).
 
-- En seed startes i kontekst av en / flere profiler.
-- En profil starter alle seed som er assosiert med seg selv i kontekst av seg selv
-- En samling starter alle profiler som har den konfigurert.
+### Starte seed
+Å starte høsting av en seed er det samme som å legge til seedens URL som utlenke i kontekst
+av én eller flere profiler.
+### Starte profil
+Å starte en profil starter alle seed som er assosiert med seg selv i kontekst av seg selv 
+
+### Starte collection
+Å starte en collection starter alle seeds i kontekst av profil(er) som er assosiert med collection.
 
 ## Høste URL som ligger i kø
-Gitt en kontekst med COLLECTION, URL, SEED, DEPTH, LENGTH, TIME_TO_LIVE, LAST_FETCH_TIME
-er følgende en algoritme for å behandle URL som er valgt ut:
+Gitt en URL i køen som har blitt valgt til å høstes og en kontekst med COLLECTION, URL, SEED, DEPTH, LENGTH, TIME_TO_LIVE, LAST_FETCH_TIME
+er følgende en algoritme for å behandle URL:
 
 1. Hvis SEED ikke finnes fjernes URL fra kø.
 2. Hvis COLLECTION ikke finnes fjernes URL fra kø. 
