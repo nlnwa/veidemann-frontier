@@ -77,17 +77,17 @@ flowchart TD
    classDef out fill:#ff5;
    classDef proc fill:#efa;
 
-   s1[Hent neste HOST fra HOST Queue] --> s2[Sjekk om HOST har ALIAS]
+    s1[Hent neste HOST\n fra HOST Queue] --> s2{Har HOST\n ALIAS?}
 
-   s2 -->|Nei| s3_2_1{Er HOST BUSY?}
-   s3_2_1 -->|Nei| s3_2_2[Set HOST BUSY i HOSTS tabell]
-   s3_2_1 --> |Ja| s1
+    s2 -->|Nei| s3_2_1{Er HOST\n BUSY?}
+    s3_2_1 -->|Nei| s3_2_2[Set HOST BUSY\n i HOSTS tabell]
+    s3_2_1 --> |Ja| s1
 
-   s2 -->|Ja| s3_1_1{Er ALIAS BUSY?}
-   s3_1_1 -->|Nei| s3_1_2[Set ALIAS BUSY] --> s3_2_2
-   s3_1_1 --> |Ja| s1
+    s2 -->|Ja| s3_1_1{Er ALIAS\n BUSY?}
+    s3_1_1 -->|Nei| s3_1_2[Set ALIAS BUSY] --> s3_2_2
+    s3_1_1 --> |Ja| s1
 
-   s3_2_2 --> s4[Slett host fra HOST Queue] --> s5[Returner HOST]
+    s3_2_2 --> s4[Slett host fra\n HOST Queue] --> s5[Returner HOST]
 ```
 
 
@@ -129,6 +129,20 @@ If a host is found in both tables (maybe because delete operation in another pro
 
 
 6. Return host only if alias is not busy and host is not busy and step 5. was  successful. 
+
+### Release host
+
+```mermaid
+flowchart TD
+   classDef in fill:#5d7;
+   classDef out fill:#ff5;
+   classDef proc fill:#efa;
+
+   s1{Har HOST\n ALIAS?}
+   s1 -->|Nei| s2[Unset HOST BUSY\n i HOSTS tabell]
+   s1 -->|Ja| s3[Unset ALIAS BUSY] --> s2
+   s2 --> s4[Legg host til\n HOST Queue]
+```
 
 ## External service
 ``` go
