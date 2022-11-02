@@ -17,26 +17,17 @@ Example contents of the _host queue_ table:
 
 #### Host table
 - **Key:** HOST
-- **Value:** BUSY_TIMEOUT or NULL
+- **Value:** BUSY_TIMEOUT or ZERO if not busy
 
 Example contents of the _busy host_ table:
 
     busy host> rana.kommune.no -> 202201012222
     busy host> nb.no -> nil
 
-#### Busy alias table
-
-- **Key:** ALIAS
-- **Value:** BUSY_TIMEOUT HOST
-
-Example contents of the _busy alias_ table:
-
-    busy alias> kommune -> 202201012222 rana.kommune.no
-
 #### Host alias table
 
 - **Key:** ALIAS
-- **Value:** HOST1 HOST2 ...
+- **Value:** BUSY_TIMEOUT HOST1 HOST2 ...
 
 - **Key:** HOST
 - **Value:** ALIAS
@@ -49,7 +40,7 @@ Example contents of the _host alias_ table:
 
     host alias> rana.kommune.no -> kommune
     host alias> vefsn.kommune.no -> kommune
-    host alias> kommune -> rana.kommune.no vefsn.kommune.no
+    host alias> kommune -> 0 rana.kommune.no vefsn.kommune.no
 
 ## Algorithms
 
