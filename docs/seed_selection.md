@@ -6,6 +6,7 @@ Seeds:
 - tu
 - faktisk
 
+
 |                                              |      url | parent seed | seed i kø | beste seed match | Resultat      |
 | -------------------------------------------- | -------: | ----------- | ---------- | ---------------- | ------------- |
 | 1. gangshøsting av seed                     |      aaa | aaa         |            | aaa              | aaa           |
@@ -19,36 +20,200 @@ Seeds:
 | n'te gangshøsting utlenke til annen seed    |   tu/art | faktisk     |            | tu               | faktisk OR tu |
 | n'te gangshøsting utlenke til annen seed    | .com/art | faktisk     |            |                  | faktisk       |
 
-```mermaid
-flowchart TB
-    classDef comment fill:#efa,color:#000;
-
-    e1[faktisk.no] --> e2[faktisk.no/artikkel] --> e3[vg.no/artikkel]
-    e2 --> e4[cnn.com/article]
-    
-    subgraph seed [ ]
-        direction TB
-        k1[<b>Seed</b>\n scope evaluation\n in context of seed]:::comment --- e1
-    end
-    
-    subgraph link [ ]
-        direction TB
-        k2[<b>Link on seeds domain</b>\nScope evaluation in context of seed]:::comment --- e2
-    end
-    
-    subgraph offsite1 [ ]
-        direction TB
-        e3 --- k3[<b>Link on domain which has own seed</b>\nScope evaluation in context of original seed.\n If not included, scope is evaluated in\n context of links own seed]:::comment
-    end
-    
-    subgraph offsite2 [ ]
-        direction TB
-        e4 --- k4[<b>Link on domain with no own seed</b>\nScope evaluation in context of seed]:::comment
-    end
-```
+# Examples
 
 ```mermaid
 flowchart LR
     e1[fa:fa-circle-1 faktisk.no] --> e2[fa:fa-2 faktisk.no/artikkel] --> e3[vg.no/artikkel]
     e2 --> e4[cnn.com/article]
+```
+
+## Example 1
+
+Seeds:
+
+* faktisk.no
+  * scope tillater ett hopp ut av domene
+* vg.no
+  * scope tillater alt under vg.no
+
+Første gangs høsting av faktisk.no
+
+```mermaid
+stateDiagram
+    direction LR
+
+    e1: faktisk.no
+    note left of e1
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e2: faktisk.no/artikkel
+    note left of e2
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e3: vg.no/artikkel
+    note right of e3
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: vg.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e4: cnn.com/article
+    note right of e4
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+
+    e1 --> e2
+    e2 --> e3
+    e2 --> e4
+```
+
+Andre gangs høsting av faktisk.no
+
+```mermaid
+stateDiagram
+    direction LR
+
+    e1: faktisk.no
+    note left of e1
+        Parent seed: faktisk.no
+        Seed in queue: faktisk.no
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e2: faktisk.no/artikkel
+    note left of e2
+        Parent seed: faktisk.no
+        Seed in queue: faktisk.no
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e3: vg.no/artikkel
+    note right of e3
+        Parent seed: faktisk.no
+        Seed in queue: faktisk.no
+        Best seed match: vg.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e4: cnn.com/article
+    note right of e4
+        Parent seed: faktisk.no
+        Seed in queue: faktisk.no
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+
+    e1 --> e2
+    e2 --> e3
+    e2 --> e4
+```
+
+## Example 2
+
+Seeds:
+
+* faktisk.no
+  * scope tillater ingen hopp ut av domene
+* vg.no
+  * scope tillater alt under vg.no
+
+Første gangs høsting av faktisk.no
+
+```mermaid
+stateDiagram
+    direction LR
+
+    e1: faktisk.no
+    note left of e1
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e2: faktisk.no/artikkel
+    note left of e2
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e3: vg.no/artikkel
+    note right of e3
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: vg.no
+        Evaluation in context of: vg.no
+    end note
+  
+    e4: cnn.com/article
+    note right of e4
+        Parent seed: faktisk.no
+        Seed in queue:
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+
+    e1 --> e2
+    e2 --> e3
+    e2 --> e4
+```
+
+Andre gangs høsting av faktisk.no
+
+```mermaid
+stateDiagram
+    direction LR
+
+    e1: faktisk.no
+    note left of e1
+        Parent seed: faktisk.no
+        Seed in queue: faktisk.no
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e2: faktisk.no/artikkel
+    note left of e2
+        Parent seed: faktisk.no
+        Seed in queue: faktisk.no
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+  
+    e3: vg.no/artikkel
+    note right of e3
+        Parent seed: faktisk.no
+        Seed in queue: vg.no
+        Best seed match: vg.no
+        Evaluation in context of: vg.no
+    end note
+  
+    e4: cnn.com/article
+    note right of e4
+        Parent seed: faktisk.no
+        Seed in queue: faktisk.no
+        Best seed match: faktisk.no
+        Evaluation in context of: faktisk.no
+    end note
+
+    e1 --> e2
+    e2 --> e3
+    e2 --> e4
 ```
