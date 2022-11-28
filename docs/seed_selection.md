@@ -6,7 +6,6 @@ Seeds:
 - tu
 - faktisk
 
-
 |                                              |      url | parent seed | seed i kø | beste seed match | Resultat      |
 | -------------------------------------------- | -------: | ----------- | ---------- | ---------------- | ------------- |
 | 1. gangshøsting av seed                     |      aaa | aaa         |            | aaa              | aaa           |
@@ -21,6 +20,7 @@ Seeds:
 | n'te gangshøsting utlenke til annen seed    | .com/art | faktisk     |            |                  | faktisk       |
 
 # Examples
+Following examples are based on harvesting the following structure. Seed is `faktisk.no`.
 
 ```mermaid
 flowchart LR
@@ -30,14 +30,14 @@ flowchart LR
 
 ## Example 1
 
-Seeds:
+### Seeds:
 
-* faktisk.no
-  * scope tillater ett hopp ut av domene
-* vg.no
-  * scope tillater alt under vg.no
+| seed       | scope rules                                                |
+|------------|------------------------------------------------------------|
+| faktisk.no | scope accepts everything in domain plus one off-domain hop |
+| vg.no      | scope accepts everything in domain, but no off-domain hops |
 
-Første gangs høsting av faktisk.no
+### First harvest of domain `faktisk.no`
 
 ```mermaid
 stateDiagram
@@ -80,7 +80,7 @@ stateDiagram
     e2 --> e4
 ```
 
-Andre gangs høsting av faktisk.no
+### Second harvest of domain `faktisk.no`
 
 ```mermaid
 stateDiagram
@@ -125,14 +125,14 @@ stateDiagram
 
 ## Example 2
 
-Seeds:
+### Seeds:
 
-* faktisk.no
-  * scope tillater ingen hopp ut av domene
-* vg.no
-  * scope tillater alt under vg.no
+| seed       | scope rules                                                |
+|------------|------------------------------------------------------------|
+| faktisk.no | scope accepts everything in domain, but no off-domain hops |
+| vg.no      | scope accepts everything in domain, but no off-domain hops |
 
-Første gangs høsting av faktisk.no
+### First harvest of domain `faktisk.no`
 
 ```mermaid
 stateDiagram
@@ -175,7 +175,7 @@ stateDiagram
     e2 --> e4
 ```
 
-Andre gangs høsting av faktisk.no
+### Second harvest of domain `faktisk.no`
 
 ```mermaid
 stateDiagram
