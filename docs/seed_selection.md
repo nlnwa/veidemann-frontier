@@ -1,27 +1,30 @@
 # Algorithm for connecting URL to seed
 
-## Definitions
+### Definitions
 
-&#x24c5; Parent URL's seed\
-&#x24c8; Seed stored in queued URL\
-&#x24b7; Best seed match for URL
+* URL is the current URL to be evaluated
+* Parent URL is the referrer URL of the current URL
+* Seed is the starting URL
+* &#x24c5; is the parent URL's seed
+* &#x24c8; is the seed stored in the queue for URL
+* &#x24b7; is the  best seed match for URL. Best match is defined as the seed with the longest match
 
-## Rules
+### Rules
 
 ```mermaid
 flowchart TD
     s([Start]) --> n1{ \u24c5 = nil? }-->|Yes| n3[URL is seed\n Set \u24c5 and \u24c8 to URL] -->n2
     n1 -->|No| n2{ \u24b7 = nil?} -->|No| n4{ \u24c5 = \u24b7? } -->|Yes| n5[Scope context is \u24c5\n \u24c8 is set to \u24c5] --> e
     n2 -->|Yes| n6[URL has no matching seed\nScope context is \u24c5]
-    n4 -->|No| n9{ URL is in\n \u24c5's scope? } -->|Yes| n10[ \u24c8 is set to \u24c5 ] -->e
-    n9-->|No| n11[ \u24c8 is set to \u24b7 ] -->e
+    n4 -->|No| n9{ URL is in\n \u24c5's scope? } -->|Yes| n10[ Scope context is \u24c5\n \u24c8 is set to \u24c5 ] -->e
+    n9-->|No| n11[ Scope context is \u24b7\n \u24c8 is set to \u24b7 ] -->e
     n6 --> n7{ \u24c8 = nil? } -->|Yes| n8[ \u24c8 is set to \u24c5] --> e
     n7 -->|No| e
-    e([End])
+    e([End]) 
 ```
 
 
-# Examples
+## Examples
 
 Following examples are based on harvesting the following structure. Seeds are `faktisk.no` and `vg.no`.
 
@@ -48,9 +51,9 @@ stateDiagram
     e22 --> e23
 ```
 
-## Example 1
+### Example 1
 
-### Seeds:
+#### Seeds:
 
 | seed       | scope rules                                                |
 |------------|------------------------------------------------------------|
